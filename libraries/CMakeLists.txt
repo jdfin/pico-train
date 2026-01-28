@@ -1,3 +1,4 @@
+add_subdirectory(dcc)
 add_subdirectory(framebuffer)
 add_subdirectory(gui)
 add_subdirectory(touchscreen)

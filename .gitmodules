@@ -10,3 +10,6 @@
 [submodule "libraries/misc"]
 	path = libraries/misc
 	url = https://github.com/jdfin/pico_libraries_misc.git
+[submodule "libraries/dcc"]
+	path = libraries/dcc
+	url = git@github.com:jdfin/pico_libraries_dcc.git
