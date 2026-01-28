@@ -1,0 +1,26 @@
+# LLVM Google Chromium Mozilla WebKit Microsoft
+BasedOnStyle: Google
+
+AccessModifierOffset: -4
+AllowShortBlocksOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false # default: true
+BraceWrapping:
+  AfterClass: true
+  AfterFunction: true
+BreakBeforeBraces: Custom
+BreakConstructorInitializers: AfterColon
+#ColumnLimit: 100 # This breaks BreakConstructorInitializers somehow
+EmptyLineAfterAccessModifier: Always
+EmptyLineBeforeAccessModifier: Always
+IndentAccessModifiers: false
+IndentWidth: 4
+#InsertBraces: true
+InsertNewlineAtEOF: true
+KeepEmptyLinesAtTheStartOfBlocks: true
+MaxEmptyLinesToKeep: 2
+PackConstructorInitializers: Never
+PointerAlignment: Right
+ReflowComments: false
+SpacesBeforeTrailingComments: 1
