@@ -1,0 +1,12 @@
+[submodule "libraries/touchscreen"]
+	path = libraries/touchscreen
+	url = https://github.com/jdfin/pico_libraries_touchscreen.git
+[submodule "libraries/framebuffer"]
+	path = libraries/framebuffer
+	url = https://github.com/jdfin/pico_libraries_framebuffer.git
+[submodule "libraries/gui"]
+	path = libraries/gui
+	url = https://github.com/jdfin/pico_libraries_gui.git
+[submodule "libraries/misc"]
+	path = libraries/misc
+	url = https://github.com/jdfin/pico_libraries_misc.git
