@@ -14,6 +14,7 @@ target_link_libraries(throttle PRIVATE
     framebuffer
     touchscreen
     gui
+    dcc
     misc
 )
 

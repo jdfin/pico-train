@@ -1,6 +1,6 @@
 #pragma once
 
-#include "hardware/spi.h"
+#include "hardware/uart.h"
 
 //                     +-----| USB |-----+
 //  (ts)  SDA X     D0 | 1            40 | VBUS_OUT
@@ -25,12 +25,14 @@
 //  (2)            D15 | 20           21 | D16           (3)
 //                     +-----------------+
 
-constexpr int fb_spi_miso_gpio = 4;
-constexpr int fb_spi_mosi_gpio = 7;
-constexpr int fb_spi_clk_gpio = 6;
-constexpr int fb_spi_cs_gpio = 5;
-spi_inst_t* const fb_spi_inst = spi0;
+constexpr int dcc_sig_gpio = 19;          // PH
+constexpr int dcc_pwr_gpio = 18;          // EN
+constexpr int dcc_adc_gpio = 26;          // CS (ADC0)
+constexpr int dcc_rcom_gpio = 17;         // Railcom
+uart_inst_t *const dcc_rcom_uart = uart0; // uart0
 
-constexpr int fb_cd_gpio = 8;
-constexpr int fb_rst_gpio = 9;
-constexpr int fb_led_gpio = 12;
+constexpr int dcc_dbg_rcom_read_gpio = -1;
+constexpr int dcc_dbg_rcom_junk_gpio = -1;
+constexpr int dcc_dbg_rcom_short_gpio = -1;
+constexpr int dcc_dbg_bitstream_next_bit_gpio = -1;
+constexpr int dcc_dbg_command_get_packet_gpio = -1;

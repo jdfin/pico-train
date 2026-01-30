@@ -21,37 +21,55 @@
 // touchscreen
 #include "gt911.h"
 // gui
-#include "gui_button.h"
-#include "gui_label.h"
-#include "gui_macros.h"
-#include "gui_number.h"
-#include "gui_page.h"
-#include "gui_slider.h"
+#include "gui.h"
+// dcc
+#include "dcc.h"
 //
+#include "dcc_gpio_cfg.h"
 #include "fb_gpio_cfg.h"
 #include "ts_gpio_cfg.h"
 
 using HAlign = Framebuffer::HAlign;
-
 using Event = Touchscreen::Event;
+
+// framebuffer
 
 static const int fb_spi_baud_request = 15'000'000;
 static int fb_spi_baud_actual = 0;
+
+static const int work_bytes = 256;
+static uint8_t work[work_bytes];
+
+static St7796 fb(fb_spi_inst, fb_spi_miso_gpio, fb_spi_mosi_gpio,
+                 fb_spi_clk_gpio, fb_spi_cs_gpio, fb_spi_baud_request,
+                 fb_cd_gpio, fb_rst_gpio, fb_led_gpio, 480, 320, work,
+                 work_bytes);
+
+// touchscreen
 
 static const uint ts_i2c_baud_request = 400'000;
 static uint ts_i2c_baud_actual = 0;
 static const uint8_t ts_i2c_addr = 0x14; // 0x14 or 0x5d
 
-static const int work_bytes = 128;
-static uint8_t work[work_bytes];
-
-static St7796 fb(fb_spi_inst, fb_spi_miso_gpio, fb_spi_mosi_gpio, fb_spi_clk_gpio, fb_spi_cs_gpio,
-                 fb_spi_baud_request, fb_cd_gpio, fb_rst_gpio, fb_led_gpio, 480, 320,
-                 work, work_bytes);
-
-static I2cDev i2c_dev(ts_i2c_inst, ts_i2c_scl_gpio, ts_i2c_sda_gpio, ts_i2c_baud_request);
+static I2cDev i2c_dev(ts_i2c_inst, ts_i2c_scl_gpio, ts_i2c_sda_gpio,
+                      ts_i2c_baud_request);
 
 static Gt911 ts(i2c_dev, ts_i2c_addr, ts_rst_gpio, ts_int_gpio);
+
+//////////////////////////////////////////////////////////////////////////////
+///// DCC ////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+
+static DccAdc adc(dcc_adc_gpio);
+
+static DccCommand command(dcc_sig_gpio, dcc_pwr_gpio, -1, adc, dcc_rcom_uart,
+                          dcc_rcom_gpio);
+
+static DccThrottle *throttle = nullptr;
+
+//////////////////////////////////////////////////////////////////////////////
+// GUI ///////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
 
 static constexpr Color screen_bg = Color::white();
 static constexpr Color screen_fg = Color::black();
@@ -79,7 +97,7 @@ static constexpr Color btn_dn_bg = Color::gray(85);
 static constexpr int p1_loco_col = fb_width / 2;
 static constexpr int p1_loco_row = fb_height / 4;
 static GuiNumber p1_loco_num(fb, p1_loco_col, p1_loco_row, screen_bg,
-                             roboto_48_digit_img, 7956, HAlign::Center);
+                             roboto_48_digit_img, 3, HAlign::Center);
 
 ///// Function Buttons
 
@@ -112,11 +130,15 @@ static GuiButton p1_horn_btn(fb, p1_func_mrg, p1_func_row_1, screen_bg,
 static void p1_horn_dn(intptr_t)
 {
     printf("Horn ON\n");
+    if (throttle != nullptr)
+        throttle->set_function(2, true); // F2 on
 }
 
 static void p1_horn_up(intptr_t)
 {
     printf("Horn OFF\n");
+    if (throttle != nullptr)
+        throttle->set_function(2, false); // F2 off
 }
 
 // Bell Button
@@ -137,10 +159,15 @@ static GuiButton p1_bell_btn(fb, p1_func_mrg, p1_func_row_2, screen_bg,
 
 static void p1_bell_dn(intptr_t)
 {
-    if (p1_bell_btn.pressed())
+    if (p1_bell_btn.pressed()) {
         printf("Bell ON\n");
-    else
+        if (throttle != nullptr)
+            throttle->set_function(1, true); // F1 on
+    } else {
         printf("Bell OFF\n");
+        if (throttle != nullptr)
+            throttle->set_function(1, false); // F1 off
+    }
 }
 
 // Lights Button
@@ -163,10 +190,15 @@ static GuiButton p1_lights_btn(fb, fb_width - p1_func_mrg - p1_func_wid,
 
 static void p1_lights_dn(intptr_t)
 {
-    if (p1_lights_btn.pressed())
+    if (p1_lights_btn.pressed()) {
         printf("Lights ON\n");
-    else
+        if (throttle != nullptr)
+            throttle->set_function(0, true); // F0 on
+    } else {
         printf("Lights OFF\n");
+        if (throttle != nullptr)
+            throttle->set_function(0, false); // F0 off
+    }
 }
 
 // Engine Button
@@ -189,10 +221,15 @@ static GuiButton p1_engine_btn(fb, fb_width - p1_func_mrg - p1_func_wid,
 
 static void p1_engine_dn(intptr_t)
 {
-    if (p1_engine_btn.pressed())
+    if (p1_engine_btn.pressed()) {
         printf("Engine ON\n");
-    else
+        if (throttle != nullptr)
+            throttle->set_function(8, true); // F8 on
+    } else {
         printf("Engine OFF\n");
+        if (throttle != nullptr)
+            throttle->set_function(8, false); // F8 off
+    }
 }
 
 ///// Speed
@@ -200,7 +237,7 @@ static void p1_engine_dn(intptr_t)
 // Layout
 
 static constexpr int p1_speed_mrg = 10; // sides
-static constexpr int p1_speed_bot = 2; // bottom
+static constexpr int p1_speed_bot = 2;  // bottom
 static constexpr int p1_speed_wid = fb_width - 2 * p1_speed_mrg;
 static constexpr int p1_speed_hgt = 40;
 static constexpr int p1_speed_row = fb_height - p1_speed_bot - p1_speed_hgt;
@@ -217,7 +254,8 @@ static constexpr int p1_dir_wid2 = p1_dir_wid / 2;
 static constexpr int p1_dir_spc = 0;
 static constexpr int p1_dir_row = p1_req_row;
 static constexpr Font p1_dir_font = roboto_28;
-static constexpr int p1_rev_col = fb_width2 - p1_dir_wid2 - p1_dir_spc - p1_dir_wid;
+static constexpr int p1_rev_col =
+    fb_width2 - p1_dir_wid2 - p1_dir_spc - p1_dir_wid;
 static constexpr int p1_stop_col = fb_width2 - p1_dir_wid2;
 static constexpr int p1_fwd_col = fb_width2 + p1_dir_wid2 + p1_dir_spc;
 
@@ -241,13 +279,6 @@ static GuiSlider p1_speed_sld(fb,                         //
                               Color::white(),             // handle_bg
                               0, 127, 0,                  // min, max, init
                               p1_speed_change, 0);        // on_value()
-
-static void p1_speed_change(intptr_t)
-{
-    int speed = p1_speed_sld.get_value();
-    printf("Speed: %d\n", speed);
-    p1_req_num.set_value(speed);
-}
 
 // Forward Button
 
@@ -300,11 +331,37 @@ static GuiButton p1_rev_btn(fb, p1_rev_col, p1_dir_row, screen_bg,
                             &p1_rev_img_dn.hdr, nullptr, 0, p1_rev_dn, 0,
                             nullptr, 0, GuiButton::Mode::Radio, false);
 
+static void set_speed()
+{
+    if (throttle == nullptr)
+        return;
+
+    int speed = p1_speed_sld.get_value();
+    assert(0 <= speed && speed <= 127);
+
+    if (p1_fwd_btn.pressed()) {
+        throttle->set_speed(speed);
+    } else if (p1_rev_btn.pressed()) {
+        throttle->set_speed(-speed);
+    } else {
+        throttle->set_speed(0);
+    }
+}
+
+static void p1_speed_change(intptr_t)
+{
+    int speed = p1_speed_sld.get_value();
+    printf("Speed: %d\n", speed);
+    p1_req_num.set_value(speed);
+    set_speed();
+}
+
 static void p1_fwd_dn(intptr_t)
 {
     printf("Forward\n");
     p1_stop_btn.pressed(false);
     p1_rev_btn.pressed(false);
+    set_speed();
 }
 
 static void p1_stop_dn(intptr_t)
@@ -312,6 +369,7 @@ static void p1_stop_dn(intptr_t)
     printf("Stop\n");
     p1_fwd_btn.pressed(false);
     p1_rev_btn.pressed(false);
+    set_speed();
 }
 
 static void p1_rev_dn(intptr_t)
@@ -319,6 +377,7 @@ static void p1_rev_dn(intptr_t)
     printf("Reverse\n");
     p1_fwd_btn.pressed(false);
     p1_stop_btn.pressed(false);
+    set_speed();
 }
 
 ///// Main Page
@@ -496,36 +555,36 @@ int main()
     //printf(" (i2c @ %u Hz)\n", ts_i2c_baud_actual);
     printf("\n");
 
-    sleep_ms(100);
+    throttle = command.create_throttle(); // default address 3
 
-    printf("> ");
+    command.set_mode_ops(); // track power on
 
     while (true) {
 
-        int c = stdio_getchar_timeout_us(0);
-        if (0 <= c && c <= 255 && argv.add_char(char(c))) {
-            // argc/argv ready
-
-            argv.reset();
+        Event event(ts.get_event());
+        if (event.type != Event::Type::none) {
+            // anyone have focus?
+            if (GuiWidget::focus != nullptr) {
+                // yes, send event there
+                GuiWidget::focus->event(event);
+            } else {
+                // no, see if anyone wants it
+                bool handled = false;
+                // nav buttons?
+                for (int p = 0; p < page_cnt && !handled; p++)
+                    handled = navs[p]->event(event);
+                // anyone on current page want it?
+                if (!handled)
+                    pages[active_page]->event(event);
+            }
         }
 
-        Event event(ts.get_event());
-        if (event.type == Event::Type::none)
-            continue;
-
-        // anyone have focus?
-        if (GuiWidget::focus != nullptr) {
-            // yes, send event there
-            GuiWidget::focus->event(event);
-        } else {
-            // no, see if anyone wants it
-            bool handled = false;
-            // nav buttons?
-            for (int p = 0; p < page_cnt && !handled; p++)
-                handled = navs[p]->event(event);
-            // anyone on current page want it?
-            if (!handled)
-                pages[active_page]->event(event);
+        // see if railcom-reported speed has changed
+        static int rc_speed_last = INT_MAX;
+        int rc_speed = throttle->get_rc_speed();
+        if (rc_speed != rc_speed_last) {
+            p1_act_num.set_value(rc_speed);
+            rc_speed_last = rc_speed;
         }
 
     } // while (true)
