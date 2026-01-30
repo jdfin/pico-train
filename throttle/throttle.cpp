@@ -380,6 +380,17 @@ static void p1_rev_dn(intptr_t)
     set_speed();
 }
 
+static void main_update(intptr_t)
+{
+    // see if railcom-reported speed has changed
+    static int rc_speed_last = INT_MAX;
+    int rc_speed = throttle->get_rc_speed();
+    if (rc_speed != rc_speed_last) {
+        p1_act_num.set_value(rc_speed);
+        rc_speed_last = rc_speed;
+    }
+}
+
 ///// Main Page
 
 // clang-format off
@@ -388,7 +399,7 @@ static GuiPage main_page({
     &p1_bell_btn,                                     &p1_engine_btn,
     &p1_req_num, &p1_rev_btn, &p1_stop_btn, &p1_fwd_btn, &p1_act_num,
                               &p1_speed_sld
-});
+}, main_update, 0);
 // clang-format on
 
 //////////////////////////////////////////////////////////////////////////////
@@ -579,13 +590,8 @@ int main()
             }
         }
 
-        // see if railcom-reported speed has changed
-        static int rc_speed_last = INT_MAX;
-        int rc_speed = throttle->get_rc_speed();
-        if (rc_speed != rc_speed_last) {
-            p1_act_num.set_value(rc_speed);
-            rc_speed_last = rc_speed;
-        }
+        // let active page update itself if it wants to
+        pages[active_page]->update();
 
     } // while (true)
 
