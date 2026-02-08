@@ -1,5 +1,6 @@
 add_subdirectory(dcc)
 add_subdirectory(framebuffer)
 add_subdirectory(gui)
-add_subdirectory(touchscreen)
 add_subdirectory(misc)
+add_subdirectory(pio_edges)
+add_subdirectory(touchscreen)

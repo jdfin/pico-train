@@ -13,3 +13,6 @@
 [submodule "libraries/dcc"]
 	path = libraries/dcc
 	url = git@github.com:jdfin/pico_libraries_dcc.git
+[submodule "libraries/pio_edges"]
+	path = libraries/pio_edges
+	url = git@github.com:jdfin/pico_libraries_pio_edges.git

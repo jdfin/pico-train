@@ -17,7 +17,7 @@
 #include "pixel_565.h"
 #include "pixel_image.h"
 #include "roboto.h"
-#include "st7796.h"
+#include "ws35.h"
 // touchscreen
 #include "gt911.h"
 // gui
@@ -40,10 +40,9 @@ static int fb_spi_baud_actual = 0;
 static const int work_bytes = 256;
 static uint8_t work[work_bytes];
 
-static St7796 fb(fb_spi_inst, fb_spi_miso_gpio, fb_spi_mosi_gpio,
-                 fb_spi_clk_gpio, fb_spi_cs_gpio, fb_spi_baud_request,
-                 fb_cd_gpio, fb_rst_gpio, fb_led_gpio, 480, 320, work,
-                 work_bytes);
+static Ws35 fb(fb_spi_inst, fb_spi_miso_gpio, fb_spi_mosi_gpio, fb_spi_clk_gpio,
+               fb_spi_cs_gpio, fb_spi_baud_request, fb_cd_gpio, fb_rst_gpio,
+               fb_led_gpio, 480, 320, work, work_bytes);
 
 // touchscreen
 
@@ -799,7 +798,8 @@ static void ProgPage::wr_btn_click(intptr_t)
 }
 
 // update number helper
-static void NumPad::update_num(GuiNumber &num, int val, int min_val, int max_val)
+static void NumPad::update_num(GuiNumber &num, int val, int min_val,
+                               int max_val)
 {
     int cur_val = num.get_value();
     if (cur_val == GuiNumber::unset) {
@@ -851,7 +851,6 @@ static void NumPad::btn_dn(intptr_t n)
         // more page
         ;
     }
-
 }
 
 
