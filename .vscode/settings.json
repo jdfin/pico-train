@@ -46,5 +46,5 @@
         "tab.activeBackground": "#374151", // Changes the background color of the active tab
         "tab.unfocusedActiveBackground": "#000033" // Changes the background of the active tab in an unfocused editor group
     },
-    "cortex-debug.variableUseNaturalFormat": true
+    "cortex-debug.variableUseNaturalFormat": false
 }
