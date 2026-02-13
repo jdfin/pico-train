@@ -64,7 +64,7 @@ static DccAdc adc(dcc_adc_gpio);
 static DccCommand command(dcc_sig_gpio, dcc_pwr_gpio, -1, adc, dcc_rcom_uart,
                           dcc_rcom_gpio);
 
-static DccThrottle *throttle = nullptr;
+static DccLoco *loco = nullptr;
 
 //////////////////////////////////////////////////////////////////////////////
 // GUI ///////////////////////////////////////////////////////////////////////
@@ -85,6 +85,7 @@ DIGIT_IMAGE_ARRAY(roboto_48, screen_fg, screen_bg); // roboto_48_digit_img
 
 static constexpr Color btn_up_bg = Color::gray(95);
 static constexpr Color btn_dn_bg = Color::gray(85);
+static constexpr Color btn_dis_bg = Color::gray(75);
 
 //////////////////////////////////////////////////////////////////////////////
 ///// Number Pad /////////////////////////////////////////////////////////////
@@ -165,14 +166,14 @@ PAD_BTN(btn_c2, btn_r4, 0);
 static constexpr int btn_bs_val = -1;
 static constexpr int btn_clr_val = -2;
 
-BUTTON_1(pad_bs, "BS", fb, btn_c1, btn_r4, btn_wid, btn_hgt, btn_brd, txt_font,
+BUTTON_2(pad_bs, "BS", fb, btn_c1, btn_r4, btn_wid, btn_hgt, btn_brd, txt_font,
          screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,                                 // on_click
          btn_dn, btn_bs_val,                         // on_down
          nullptr, 0,                                 // on_up
          GuiButton::Mode::Momentary, false);
 
-BUTTON_1(pad_clr, "CLR", fb, btn_c3, btn_r4, btn_wid, btn_hgt, btn_brd,
+BUTTON_2(pad_clr, "CLR", fb, btn_c3, btn_r4, btn_wid, btn_hgt, btn_brd,
          txt_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,                                           // on_click
          btn_dn, btn_clr_val,                                  // on_down
@@ -224,7 +225,7 @@ static constexpr int f_btn_row_2 = f_btn_row_1 + f_btn_hgt + f_btn_spc;
 static void horn_btn_dn(intptr_t);
 static void horn_btn_up(intptr_t);
 
-BUTTON_1(horn, "Horn", fb, f_btn_col_1, f_btn_row_1, f_btn_wid, f_btn_hgt,
+BUTTON_2(horn, "Horn", fb, f_btn_col_1, f_btn_row_1, f_btn_wid, f_btn_hgt,
          btn_brd, f_btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,     // on_click
          horn_btn_dn, 0, // on_down
@@ -233,21 +234,21 @@ BUTTON_1(horn, "Horn", fb, f_btn_col_1, f_btn_row_1, f_btn_wid, f_btn_hgt,
 
 static void horn_btn_dn(intptr_t)
 {
-    if (throttle == nullptr)
+    if (loco == nullptr)
         return;
-    throttle->set_function(2, true); // F2 on
+    loco->set_function(2, true); // F2 on
 }
 
 static void horn_btn_up(intptr_t)
 {
-    if (throttle == nullptr)
+    if (loco == nullptr)
         return;
-    throttle->set_function(2, false); // F2 off
+    loco->set_function(2, false); // F2 off
 }
 
 static void bell_btn_dn(intptr_t);
 
-BUTTON_1(bell, "Bell", fb, f_btn_col_1, f_btn_row_2, f_btn_wid, f_btn_hgt,
+BUTTON_2(bell, "Bell", fb, f_btn_col_1, f_btn_row_2, f_btn_wid, f_btn_hgt,
          btn_brd, f_btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,     // on_click
          bell_btn_dn, 0, // on_down
@@ -256,14 +257,14 @@ BUTTON_1(bell, "Bell", fb, f_btn_col_1, f_btn_row_2, f_btn_wid, f_btn_hgt,
 
 static void bell_btn_dn(intptr_t)
 {
-    if (throttle == nullptr)
+    if (loco == nullptr)
         return;
-    throttle->set_function(1, bell_btn.pressed()); // F1
+    loco->set_function(1, bell_btn.pressed()); // F1
 }
 
 static void lights_btn_dn(intptr_t);
 
-BUTTON_1(lights, "Lights", fb, f_btn_col_2, f_btn_row_1, f_btn_wid, f_btn_hgt,
+BUTTON_2(lights, "Lights", fb, f_btn_col_2, f_btn_row_1, f_btn_wid, f_btn_hgt,
          btn_brd, f_btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,       // on_click
          lights_btn_dn, 0, // on_down
@@ -272,14 +273,14 @@ BUTTON_1(lights, "Lights", fb, f_btn_col_2, f_btn_row_1, f_btn_wid, f_btn_hgt,
 
 static void lights_btn_dn(intptr_t)
 {
-    if (throttle == nullptr)
+    if (loco == nullptr)
         return;
-    throttle->set_function(0, lights_btn.pressed()); // F0
+    loco->set_function(0, lights_btn.pressed()); // F0
 }
 
 static void engine_btn_dn(intptr_t);
 
-BUTTON_1(engine, "Engine", fb, f_btn_col_2, f_btn_row_2, f_btn_wid, f_btn_hgt,
+BUTTON_2(engine, "Engine", fb, f_btn_col_2, f_btn_row_2, f_btn_wid, f_btn_hgt,
          btn_brd, f_btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,       // on_click
          engine_btn_dn, 0, // on_down
@@ -288,9 +289,9 @@ BUTTON_1(engine, "Engine", fb, f_btn_col_2, f_btn_row_2, f_btn_wid, f_btn_hgt,
 
 static void engine_btn_dn(intptr_t)
 {
-    if (throttle == nullptr)
+    if (loco == nullptr)
         return;
-    throttle->set_function(8, engine_btn.pressed()); // F8
+    loco->set_function(8, engine_btn.pressed()); // F8
 }
 
 ///// Speed
@@ -346,7 +347,7 @@ static GuiSlider speed_sld(fb,                   //
 
 static void fwd_dn(intptr_t);
 
-BUTTON_1(fwd, "Forward", fb, fwd_col, dir_row, dir_wid, dir_hgt, btn_brd,
+BUTTON_2(fwd, "Forward", fb, fwd_col, dir_row, dir_wid, dir_hgt, btn_brd,
          dir_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,                                           // on_click
          fwd_dn, 0,                                            // on_down
@@ -357,7 +358,7 @@ BUTTON_1(fwd, "Forward", fb, fwd_col, dir_row, dir_wid, dir_hgt, btn_brd,
 
 static void stop_dn(intptr_t);
 
-BUTTON_1(stop, "Stop", fb, stop_col, dir_row, dir_wid, dir_hgt, btn_brd,
+BUTTON_2(stop, "Stop", fb, stop_col, dir_row, dir_wid, dir_hgt, btn_brd,
          dir_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,                                           // on_click
          stop_dn, 0,                                           // on_down
@@ -368,7 +369,7 @@ BUTTON_1(stop, "Stop", fb, stop_col, dir_row, dir_wid, dir_hgt, btn_brd,
 
 static void rev_dn(intptr_t);
 
-BUTTON_1(rev, "Reverse", fb, rev_col, dir_row, dir_wid, dir_hgt, btn_brd,
+BUTTON_2(rev, "Reverse", fb, rev_col, dir_row, dir_wid, dir_hgt, btn_brd,
          dir_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,                                           // on_click
          rev_dn, 0,                                            // on_down
@@ -377,18 +378,18 @@ BUTTON_1(rev, "Reverse", fb, rev_col, dir_row, dir_wid, dir_hgt, btn_brd,
 
 static void set_speed()
 {
-    if (throttle == nullptr)
+    if (loco == nullptr)
         return;
 
     int speed = speed_sld.get_value();
     assert(0 <= speed && speed <= 127);
 
     if (fwd_btn.pressed()) {
-        throttle->set_speed(speed);
+        loco->set_speed(speed);
     } else if (rev_btn.pressed()) {
-        throttle->set_speed(-speed);
+        loco->set_speed(-speed);
     } else {
-        throttle->set_speed(0);
+        loco->set_speed(0);
     }
 }
 
@@ -420,11 +421,15 @@ static void rev_dn(intptr_t)
     set_speed();
 }
 
+static void init(intptr_t)
+{
+}
+
 static void update(intptr_t)
 {
     // see if railcom-reported speed has changed
     static int rc_speed_last = INT_MAX;
-    int rc_speed = throttle->get_rc_speed();
+    int rc_speed = loco->get_rc_speed();
     if (rc_speed != rc_speed_last) {
         act_num.set_value(rc_speed);
         rc_speed_last = rc_speed;
@@ -439,7 +444,7 @@ static GuiPage page({
     &bell_btn,                               &engine_btn,
     &req_num, &rev_btn, &stop_btn, &fwd_btn, &act_num,
                         &speed_sld
-}, update, 0);
+}, init, 0, update, 0);
 // clang-format on
 
 } // namespace MainPage
@@ -448,9 +453,145 @@ static GuiPage page({
 ///// LOCO ///////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
 
+// +------------------------------------+
+// | [MAIN] [LOCO] [FUNC] [PROG] [MORE] |
+// |                                    |
+// | [Use ID] nnnn    [ 7 ] [ 8 ] [ 9 ] |
+// |                                    |
+// | [Set ID] nnnn    [ 4 ] [ 5 ] [ 6 ] |
+// |                                    |
+// |     status       [ 1 ] [ 2 ] [ 3 ] |
+// |                                    |
+// |        [Apply]   [BS ] [ 0 ] [CLR] |
+// +------------------------------------+
+
 namespace LocoPage {
 
-static GuiPage page({});
+static constexpr int btn_brd = 2;
+
+static constexpr int btn_wid = 140;
+static constexpr int btn_hgt = 50;
+static constexpr int btn_col = 20;
+static constexpr int btn_row_1 = 60 + 7;
+static constexpr int btn_row_2 = btn_row_1 + 65;
+
+static constexpr Font btn_font = roboto_36;
+static const PixelImageHdr **btn_digit_img = roboto_36_digit_img;
+
+static constexpr int val_wid = 80;
+static constexpr int val_col = btn_col + btn_wid + 10 + val_wid;
+static constexpr int val_row_1 = btn_row_1 + (btn_hgt - btn_font.y_adv) / 2;
+static constexpr int val_row_2 = btn_row_2 + (btn_hgt - btn_font.y_adv) / 2;
+
+// Use ID and Set ID Buttons and Values
+
+static void use_id_btn_dn(intptr_t);
+
+BUTTON_2(use_id, "Use ID", fb, btn_col, btn_row_1, btn_wid, btn_hgt, btn_brd,
+         btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
+         nullptr, 0,                                           // on_click
+         use_id_btn_dn, 0,                                     // on_down
+         nullptr, 0,                                           // on_up
+         GuiButton::Mode::Radio, true);
+
+static GuiNumber use_id_val(fb, val_col, val_row_1, screen_bg, btn_digit_img,
+                            GuiNumber::unset, HAlign::Right);
+
+static void set_id_btn_dn(intptr_t);
+
+BUTTON_2(set_id, "Set ID", fb, btn_col, btn_row_2, btn_wid, btn_hgt, btn_brd,
+         btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
+         nullptr, 0,                                           // on_click
+         set_id_btn_dn, 0,                                     // on_down
+         nullptr, 0,                                           // on_up
+         GuiButton::Mode::Radio, false);
+
+static GuiNumber set_id_val(fb, val_col, val_row_2, screen_bg, btn_digit_img,
+                            GuiNumber::unset, HAlign::Right);
+
+// Apply Button
+
+static constexpr int ap_btn_wid = 100;
+static constexpr int ap_btn_hgt = 50;
+static constexpr int ap_btn_spc = 20;
+static constexpr int ap_btn_col = 20 + ap_btn_wid + ap_btn_spc;
+static constexpr int ap_btn_row = fb_height - 20 - ap_btn_hgt;
+
+static void ap_btn_click(intptr_t);
+
+BUTTON_3(ap, "Apply", fb, ap_btn_col, ap_btn_row, ap_btn_wid, ap_btn_hgt,
+         btn_brd, btn_font, screen_fg, screen_bg, btn_up_bg, btn_dis_bg,
+         btn_dn_bg, ap_btn_click, 0, // on_click
+         nullptr, 0,                 // on_down
+         nullptr, 0,                 // on_up
+         GuiButton::Mode::Momentary, false);
+
+// status message (none or one will be visible)
+
+static constexpr int stat_ctr = 20 + ap_btn_wid + ap_btn_spc / 2;
+static constexpr int stat_wid = 200;
+static constexpr int stat_hgt = 40;
+static constexpr int stat_col = stat_ctr - stat_wid / 2;
+static constexpr int stat_row = ap_btn_row - stat_hgt - 10;
+static constexpr Font stat_font = roboto_28;
+
+static constexpr PixelImage<Pixel565, stat_wid, stat_hgt> work_img =
+    label_img<Pixel565, stat_wid, stat_hgt> //
+    ("Working", stat_font, screen_fg, 0, screen_fg, screen_bg);
+
+static GuiLabel work_lbl(fb, stat_col, stat_row, screen_bg,    //
+                         &work_img.hdr, &work_img.hdr, false); // not visible
+
+static constexpr PixelImage<Pixel565, stat_wid, stat_hgt> ok_img =
+    label_img<Pixel565, stat_wid, stat_hgt> //
+    ("OK", stat_font, screen_fg, 0, screen_fg, screen_bg);
+
+static GuiLabel ok_lbl(fb, stat_col, stat_row, screen_bg, //
+                       &ok_img.hdr, &ok_img.hdr, false);  // not visible
+
+static constexpr PixelImage<Pixel565, stat_wid, stat_hgt> err_img =
+    label_img<Pixel565, stat_wid, stat_hgt> //
+    ("Error", stat_font, screen_fg, 0, screen_fg, screen_bg);
+
+static GuiLabel err_lbl(fb, stat_col, stat_row, screen_bg,  //
+                        &err_img.hdr, &err_img.hdr, false); // not visible
+
+static GuiLabel *cur_stat = nullptr;
+
+static void set_status(GuiLabel *stat)
+{
+    if (stat == cur_stat)
+        return;
+
+    if (cur_stat != nullptr) {
+        cur_stat->erase();
+        cur_stat->visible(false);
+    }
+
+    cur_stat = stat;
+
+    if (cur_stat != nullptr) {
+        cur_stat->visible(true);
+        cur_stat->draw();
+    }
+}
+
+// init page
+static void init(intptr_t);
+
+// update page
+static void update(intptr_t);
+
+// clang-format off
+static GuiPage page({
+    &use_id_btn, &use_id_val, &NumPad::pad_7_btn,  &NumPad::pad_8_btn, &NumPad::pad_9_btn,   //
+    &set_id_btn, &set_id_val, &NumPad::pad_4_btn,  &NumPad::pad_5_btn, &NumPad::pad_6_btn,   //
+            &ok_lbl,          &NumPad::pad_1_btn,  &NumPad::pad_2_btn, &NumPad::pad_3_btn,   //
+            &ap_btn,          &NumPad::pad_bs_btn, &NumPad::pad_0_btn, &NumPad::pad_clr_btn, //
+    // these go where ok_lbl is
+    &work_lbl, &err_lbl
+}, init, 0, update, 0);
+// clang-format on
 
 } // namespace LocoPage
 
@@ -502,7 +643,7 @@ static constexpr int val_row_2 = btn_row_2 + (btn_hgt - btn_font.y_adv) / 2;
 
 static void cv_num_btn_dn(intptr_t);
 
-BUTTON_1(cv_num, "CV Num", fb, btn_col, btn_row_1, btn_wid, btn_hgt, btn_brd,
+BUTTON_2(cv_num, "CV Num", fb, btn_col, btn_row_1, btn_wid, btn_hgt, btn_brd,
          btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,                                           // on_click
          cv_num_btn_dn, 0,                                     // on_down
@@ -514,7 +655,7 @@ static GuiNumber cv_num_val(fb, val_col, val_row_1, screen_bg, btn_digit_img,
 
 static void cv_val_btn_dn(intptr_t);
 
-BUTTON_1(cv_val, "CV Val", fb, btn_col, btn_row_2, btn_wid, btn_hgt, btn_brd,
+BUTTON_2(cv_val, "CV Val", fb, btn_col, btn_row_2, btn_wid, btn_hgt, btn_brd,
          btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          nullptr, 0,                                           // on_click
          cv_val_btn_dn, 0,                                     // on_down
@@ -539,7 +680,7 @@ static constexpr int wr_btn_row = rd_btn_row;
 
 static void rd_btn_click(intptr_t);
 
-BUTTON_1(rd, "Read", fb, rd_btn_col, rd_btn_row, rw_btn_wid, rw_btn_hgt,
+BUTTON_2(rd, "Read", fb, rd_btn_col, rd_btn_row, rw_btn_wid, rw_btn_hgt,
          btn_brd, btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          rd_btn_click, 0, // on_click
          nullptr, 0,      // on_down
@@ -548,7 +689,7 @@ BUTTON_1(rd, "Read", fb, rd_btn_col, rd_btn_row, rw_btn_wid, rw_btn_hgt,
 
 static void wr_btn_click(intptr_t);
 
-BUTTON_1(wr, "Write", fb, wr_btn_col, wr_btn_row, rw_btn_wid, rw_btn_hgt,
+BUTTON_2(wr, "Write", fb, wr_btn_col, wr_btn_row, rw_btn_wid, rw_btn_hgt,
          btn_brd, btn_font, screen_fg, screen_bg, btn_up_bg, btn_dn_bg, //
          wr_btn_click, 0, // on_click
          nullptr, 0,      // on_down
@@ -605,6 +746,11 @@ static void set_status(GuiLabel *stat)
     }
 }
 
+// init page
+static void init(intptr_t)
+{
+}
+
 // update page
 static void update(intptr_t);
 
@@ -616,7 +762,7 @@ static GuiPage page({
     &rd_btn, &wr_btn,         &NumPad::pad_bs_btn, &NumPad::pad_0_btn, &NumPad::pad_clr_btn, //
     // these go where ok_lbl is
     &work_lbl, &err_lbl,
-}, update, 0);
+}, init, 0, update, 0);
 // clang-format on
 
 } // namespace ProgPage
@@ -704,6 +850,7 @@ static GuiButton *btns[] = {&nav_0, &nav_1, &nav_2, &nav_3, &nav_4};
 static void show_page(int page_num)
 {
     btns[page_num]->enabled(false);
+    pages[page_num]->init();
     pages[page_num]->visible(true);
 }
 
@@ -737,6 +884,8 @@ static void nav_click(int page_num)
 
 } // namespace Nav
 
+//////////////////////////////////////////////////////////////////////////////
+
 static void ProgPage::update(intptr_t)
 {
     int busy = pages[active_page]->busy();
@@ -748,7 +897,7 @@ static void ProgPage::update(intptr_t)
         // reading or writing
         bool result;
         uint8_t value;
-        if (throttle->ops_done(result, value)) {
+        if (loco->ops_done(result, value)) {
             if (result) {
                 cv_val_val.set_value(value);
                 set_status(&ok_lbl);
@@ -779,7 +928,7 @@ static void ProgPage::rd_btn_click(intptr_t)
     int cv_num = cv_num_val.get_value();
     if (cv_num == GuiNumber::unset)
         return;
-    throttle->read_cv(cv_num);
+    loco->read_cv(cv_num);
     pages[active_page]->busy(1);
     cv_val_val.set_value(GuiNumber::unset);
     set_status(&work_lbl);
@@ -791,11 +940,77 @@ static void ProgPage::wr_btn_click(intptr_t)
     int cv_val = cv_val_val.get_value();
     if (cv_num == GuiNumber::unset || cv_val == GuiNumber::unset)
         return;
-    throttle->write_cv(cv_num, cv_val);
+    loco->write_cv(cv_num, cv_val);
     pages[active_page]->busy(2);
     cv_val_val.set_value(GuiNumber::unset);
     set_status(&work_lbl);
 }
+
+//////////////////////////////////////////////////////////////////////////////
+
+static void LocoPage::init(intptr_t)
+{
+    use_id_btn.pressed(true);
+    use_id_val.set_value(loco->get_address());
+    set_id_btn.pressed(false);
+    set_id_val.set_value(GuiNumber::unset);
+    ap_btn.visible(false);
+}
+
+static void LocoPage::update(intptr_t)
+{
+    int busy = pages[active_page]->busy();
+    if (busy == 0) {
+        // not busy
+        return;
+    } else {
+        assert(busy == 2);
+        // writing
+        bool result;
+        uint8_t value;
+        if (loco->ops_done(result, value)) {
+            if (result) {
+                use_id_val.set_value(value);
+                set_status(&ok_lbl);
+            } else {
+                set_status(&err_lbl);
+            }
+            pages[active_page]->busy(0); // not busy
+        }
+    }
+}
+
+static void LocoPage::use_id_btn_dn(intptr_t)
+{
+    set_id_val.set_value(GuiNumber::unset);
+    set_id_btn.pressed(false);
+    ap_btn.visible(false);
+    set_status(nullptr); // clear status
+}
+
+static void LocoPage::set_id_btn_dn(intptr_t)
+{
+    use_id_val.set_value(GuiNumber::unset);
+    use_id_btn.pressed(false);
+    ap_btn.visible(false);
+    set_status(nullptr); // clear status
+}
+
+
+static void LocoPage::ap_btn_click(intptr_t)
+{
+    int set_id = set_id_val.get_value();
+    if (set_id == GuiNumber::unset)
+        return;
+
+    //loco->write_cv(cv_num, cv_val);
+
+    pages[active_page]->busy(2); // writing
+    set_id_val.set_value(GuiNumber::unset);
+    set_status(&work_lbl);
+}
+
+//////////////////////////////////////////////////////////////////////////////
 
 // update number helper
 static void NumPad::update_num(GuiNumber &num, int val, int min_val,
@@ -808,7 +1023,7 @@ static void NumPad::update_num(GuiNumber &num, int val, int min_val,
     } else if (val == btn_bs_val) {
         // backspace
         int new_val = cur_val / 10;
-        if (new_val < min_val)
+        if (cur_val == 0 || new_val < min_val)
             num.set_value(GuiNumber::unset);
         else
             num.set_value(new_val);
@@ -832,18 +1047,24 @@ static void NumPad::btn_dn(intptr_t n)
         ;
     } else if (active_page == 1) {
         // loco page
-        ;
+        if (LocoPage::use_id_btn.pressed()) {
+            update_num(LocoPage::use_id_val, n, DccPkt::address_min, DccPkt::address_max);
+            LocoPage::ap_btn.visible(LocoPage::use_id_val.get_value() != GuiNumber::unset);
+        } else {
+            update_num(LocoPage::set_id_val, n, DccPkt::address_min, DccPkt::address_max);
+            LocoPage::ap_btn.visible(LocoPage::set_id_val.get_value() != GuiNumber::unset);
+        }
+        LocoPage::set_status(nullptr); // clear status
+
     } else if (active_page == 2) {
         // func page
         ;
     } else if (active_page == 3) {
         // prog page
-
         if (ProgPage::cv_num_btn.pressed())
             update_num(ProgPage::cv_num_val, n, 1, 1024);
         else
             update_num(ProgPage::cv_val_val, n, 0, 255);
-
         ProgPage::set_status(nullptr); // clear status
 
     } else {
@@ -903,7 +1124,7 @@ int main()
     //printf(" (i2c @ %u Hz)\n", ts_i2c_baud_actual);
     printf("\n");
 
-    throttle = command.create_throttle(); // default address 3
+    loco = command.create_loco(); // default address 3
 
     command.set_mode_ops(); // track power on
 
