@@ -1,15 +1,15 @@
 [submodule "libraries/touchscreen"]
 	path = libraries/touchscreen
-	url = https://github.com/jdfin/pico-libraries-touchscreen.git
+	url = git@github.com:jdfin/pico-libraries-touchscreen.git
 [submodule "libraries/framebuffer"]
 	path = libraries/framebuffer
-	url = https://github.com/jdfin/pico-libraries-framebuffer.git
+	url = git@github.com:jdfin/pico-libraries-framebuffer.git
 [submodule "libraries/gui"]
 	path = libraries/gui
-	url = https://github.com/jdfin/pico-libraries-gui.git
+	url = git@github.com:jdfin/pico-libraries-gui.git
 [submodule "libraries/misc"]
 	path = libraries/misc
-	url = https://github.com/jdfin/pico-libraries-misc.git
+	url = git@github.com:jdfin/pico-libraries-misc.git
 [submodule "libraries/dcc"]
 	path = libraries/dcc
 	url = git@github.com:jdfin/pico-libraries-dcc.git
