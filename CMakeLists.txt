@@ -20,7 +20,7 @@ if (EXISTS ${picoVscode})
 endif()
 # ====================================================================================
 
-set(PICO_BOARD pico2_w CACHE STRING "Board type")
+set(PICO_BOARD pimoroni_tiny2040 CACHE STRING "Board type")
 
 include(pico_sdk_import.cmake)
 
@@ -28,7 +28,7 @@ project(pico_train C CXX ASM)
 
 pico_sdk_init()
 
-add_compile_options(-Wall -Wextra -Werror)
+add_compile_options(-Wall -Wextra -Werror -fstack-protector-strong)
 
 # get mixed source/assembly
 #add_compile_options(-save-temps -fverbose-asm)
