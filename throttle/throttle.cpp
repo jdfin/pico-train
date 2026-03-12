@@ -61,7 +61,7 @@ static Gt911 ts(i2c_dev, ts_i2c_addr, ts_rst_gpio, ts_int_gpio);
 
 static DccAdc adc(dcc_adc_gpio);
 
-static DccCommand command(dcc_sig_gpio, dcc_pwr_gpio, -1, adc, dcc_rcom_uart,
+static DccCommand command(dcc_sig_gpio, dcc_pwr_gpio, -1, &adc, dcc_rcom_uart,
                           dcc_rcom_gpio);
 
 static DccLoco *loco = nullptr;
