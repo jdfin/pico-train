@@ -16,3 +16,6 @@
 [submodule "libraries/pio_edges"]
 	path = libraries/pio_edges
 	url = git@github.com:jdfin/pico-libraries-pio_edges.git
+[submodule "libraries/railroad"]
+	path = libraries/railroad
+	url = git@github.com:jdfin/pico-libraries-railroad.git

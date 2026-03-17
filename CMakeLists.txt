@@ -36,5 +36,6 @@ add_compile_options(-Wall -Wextra -Werror -fstack-protector-strong)
 # see include files
 #add_compile_options(-H)
 
-add_subdirectory(throttle)
 add_subdirectory(libraries)
+add_subdirectory(throttle)
+add_subdirectory(circuits)
