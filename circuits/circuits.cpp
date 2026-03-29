@@ -7,91 +7,66 @@
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 // misc
+#include "buf_log.h"
 #include "sys_led.h"
 // dcc
 #include "dcc_api.h"
 using Status = DccApi::Status;
 // railroad
 #include "afunc.h"
+#include "desktop_layout.h"
 #include "sensor.h"
 #include "turnout.h"
 //
-#include "locos.h"
 #include "config.h"
+#include "locos.h"
 
-///// Turnouts ///////////////////////////////////////////////////////////////
-
-static constexpr int turnout_max = 2;
-
-static Turnout turnout[turnout_max] = {
-    Turnout(t0a_gpio, t0b_gpio),
-    Turnout(t1a_gpio, t1b_gpio),
-};
-
-///// Sensors ////////////////////////////////////////////////////////////////
-
-static constexpr int sensor_max = 8;
-
-static Sensor sensor[sensor_max] = {
-    Sensor(s0_gpio), Sensor(s1_gpio), Sensor(s2_gpio), Sensor(s3_gpio),
-    Sensor(s4_gpio), Sensor(s5_gpio), Sensor(s6_gpio), Sensor(s7_gpio),
-};
-
-///// Async Functions ////////////////////////////////////////////////////////
+static constexpr bool snd_engine = false;
 
 static AFunc afunc;
 
-///// Locos //////////////////////////////////////////////////////////////////
-
 static constexpr int loco_id = 3;
 
-//static Loco *loco = nullptr;
+static const Loco *loco = nullptr;
 
-static const int zippy = 80;
-static const int fast = 40;
-static const int medium = 30;
-static const int slow = 20;
-static const int creep = 5;
+static const int zippy_mms = 300;
+static const int fast_mms = 150;
+static const int medium_mms = 100;
+static const int slow_mms = 75;
+static const int creep_mms = 25;
 static const int stop = 0;
 
-// How long to go a given distance at a given speed
-// For ML-8, speed_mms is about 3.5 * speed_dcc
-//
-//  dist_mm        s           d/s     1'000'000 us   dist_mm * 1'000'000
-//  ------- x ----------- x -------- x ------------ = -------------------
-//            speed_dcc d   3.5 mm/s       1 s          speed_dcc * 3.5
-//
-static uint32_t mm_to_us(int dist_mm, int speed_dcc)
+// How many microseconds to go dist_mm at speed_mms
+static uint32_t mm_to_us(int dist_mm, int speed_mms)
 {
-    return (dist_mm * 285714) / speed_dcc;
+    const uint32_t t_us = (dist_mm * 1'000'000 + speed_mms / 2) / speed_mms;
+    return t_us;
 }
 
-// value >= 0 means set the cv to that value
-static constexpr int cv_show = -1; // don't change, but read and show
-static constexpr int cv_none = -2; // don't change, don't read
+// value >= 0 means set the cv to that value; negative values are special
+static constexpr int cv_none = -1; // don't change, don't read
+static constexpr int cv_show = -2; // don't change, but read and show
+static constexpr int cv_bits = -3; // don't change, but read and show bits
 
-// set any of these to -1 to use (and show) the default
-static int accel = 0; // cv_show;      // default = 20 (SP2265), 16 (Plymouth)
-static int decel = 0; // default = 20 (SP2265), 12 (Plymouth)
-static int master_vol = cv_none; // default = 128 (SP2265)
+static int car_len_mm = 150; // boxcar and tanker
+
+static void ops_cv_val_set(int num, int val);
+static void ops_cv_bit_set(int cv_num, int b_num, int b_val);
 
 static void init();
 static void loop(int32_t for_us = 0);
+static void func_set(int f_num, bool on, bool verbose=false);
 
-static constexpr uint32_t svc_err_delay_us = 500'000;
+[[maybe_unused]]
+static void toots(uint32_t on1_us = 0, uint32_t off1_us = 0,
+                  uint32_t on2_us = 0, uint32_t off2_us = 0,
+                  uint32_t on3_us = 0);
 
-[[maybe_unused]] static void toots(uint32_t on1_us = 0, uint32_t off1_us = 0,
-                                   uint32_t on2_us = 0, uint32_t off2_us = 0,
-                                   uint32_t on3_us = 0);
-[[maybe_unused]] static bool check_setup(int &spur_a, int &spur_b);
-[[maybe_unused]] static void home();
-[[maybe_unused]] static void spur(int sensor_num);
-[[maybe_unused]] static void uncouple();
-[[maybe_unused]] static void spot(int spur_num);
-[[maybe_unused]] static void fetch(int spur_num);
-[[maybe_unused]] static void speed_check(int speed);
-
-[[maybe_unused]] static DccApi::Status svc_read_sn(uint32_t &sn);
+static bool check_setup(int &spur_a, int &spur_b);
+static void fetch(int spur_num);
+static void uncouple();
+static bool spot(int spur_num);
+static void home();
 
 
 int main()
@@ -117,7 +92,9 @@ int main()
 
     init();
 
-#if 1
+    uint32_t track_on_us = time_us_32();
+
+    // spurs a and b initially have the cars on them
     int spur_a, spur_b;
     while (!check_setup(spur_a, spur_b)) {
         // flash led
@@ -126,13 +103,25 @@ int main()
         SysLed::off();
         loop(100'000);
     }
+
+    // spur_e is initially empty
     int spur_e = 6 - spur_a - spur_b; // 1+2+3=6
+
+    // let the supercap charge some before trying to move
+    const uint32_t charge_us = 10'000'000;
+    const uint32_t delay_us = charge_us - (time_us_32() - track_on_us);
+    loop(delay_us);
+
     while (true) {
         fetch(spur_a);
-        loop(2'000'000);
-        uncouple();
-        loop(2'000'000);
-        spot(spur_e);
+
+        do {
+            loop(2'000'000);
+            uncouple();
+            loop(2'000'000);
+            // if spot() returns false, the car recoupled, so try again
+        } while (!spot(spur_e));
+
         loop(2'000'000);
         spur_a = spur_b;
         spur_b = spur_e;
@@ -140,21 +129,6 @@ int main()
         home();
         loop(3'000'000);
     }
-#else
-    int spur_num = 1;
-    while (true) {
-        uncouple();
-        loop(2'000'000);
-        spot(spur_num);
-        loop(2'000'000);
-        home();
-        loop(3'000'000);
-        fetch(spur_num);
-        loop(2'000'000);
-        if (++spur_num > 3)
-            spur_num = 1;
-    }
-#endif
 
     sleep_ms(100);
 
@@ -169,38 +143,25 @@ static void loop(int32_t for_us)
     while (end_us - int32_t(time_us_32()) >= 0) {
         SysLed::loop();
         afunc.loop();
+        BufLog::loop();
     }
 } // loop
 
 
-// sensor number 50 mm from end of spur
-[[maybe_unused]]
-static int sensor_50(int spur_num)
+static void func_set(int f_num, bool on, bool verbose)
 {
-    assert(spur_num == 1 || spur_num == 2 || spur_num == 3);
+    if (f_num < 0)
+        return;
 
-    if (spur_num == 1)
-        return 2;
-    else if (spur_num == 2)
-        return 4;
-    else // (spur_num == 3)
-        return 6;
-}
+    if (verbose)
+        printf("f%d %s ... ", f_num, on ? "on" : "off");
 
+    DccApi::loco_func_set(loco_id, f_num, on);
 
-// sensor number 100 mm from end of spur
-[[maybe_unused]]
-static int sensor_100(int spur_num)
-{
-    assert(spur_num == 1 || spur_num == 2 || spur_num == 3);
+    if (verbose)
+        printf("ok\n");
 
-    if (spur_num == 1)
-        return 3;
-    else if (spur_num == 2)
-        return 5;
-    else // (spur_num == 3)
-        return 7;
-}
+} // func_set
 
 
 static void toots(uint32_t on1_us,                   //
@@ -237,18 +198,20 @@ static bool check_setup(int &spur_a, int &spur_b)
     spur_b = 0;
 
     for (int s = 1; s <= 3; ++s) {
-        if (sensor[sensor_50(s)]) {
+        if (sensor_50(s)) {
             printf("check_setup: ERROR: 50mm sensor on spur %d active\n", s);
             ok = false;
         }
-        if (sensor[sensor_100(s)]) {
+        if (sensor_100(s)) {
             if (spur_a == 0) {
                 spur_a = s;
             } else if (spur_b == 0) {
                 spur_b = s;
             } else {
                 assert(s == 3);
-                printf("check_setup: ERROR: 100mm sensors on all spurs\n");
+                printf(
+                    "check_setup: ERROR: 100mm sensors on all spurs "
+                    "active\n");
                 ok = false;
             }
         }
@@ -266,259 +229,202 @@ static bool check_setup(int &spur_a, int &spur_b)
 }
 
 
-// loco is right of uncoupler
-// forward to uncoupler, delay, slow down, to the house, stop
-static void home()
-{
-    printf("home ... ");
-    assert(DccApi::loco_speed_set(loco_id, zippy) == Status::Ok);
-    while (!sensor[1])
-        loop();
-    assert(DccApi::loco_speed_set(loco_id, fast) == Status::Ok);
-    loop(mm_to_us(100, fast));
-    assert(DccApi::loco_speed_set(loco_id, medium) == Status::Ok);
-    loop(mm_to_us(100, medium));
-    assert(DccApi::loco_speed_set(loco_id, slow) == Status::Ok);
-    loop(mm_to_us(100, slow));
-    assert(DccApi::loco_speed_set(loco_id, creep) == Status::Ok);
-    while (!sensor[0])
-        loop();
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
-    loop(1'000'000);
-    assert(DccApi::loco_func_set(loco_id, 1, true) ==
-           Status::Ok); // cabin light on
-    printf("ok\n");
-}
-
-
-[[maybe_unused]]
-static void line_turnout_0(int spur_num)
-{
-    assert(spur_num == 1 || spur_num == 2 || spur_num == 3);
-
-    if (spur_num == 1)
-        turnout[0].set(true);  // straight
-    else                       // 2 or 3
-        turnout[0].set(false); // diverge
-}
-
-
-[[maybe_unused]]
-static void line_turnout_1(int spur_num)
-{
-    assert(spur_num == 1 || spur_num == 2 || spur_num == 3);
-
-    if (spur_num == 1)
-        ; // nothing to do
-    else if (spur_num == 2)
-        turnout[1].set(false); // diverge
-    else if (spur_num == 3)
-        turnout[1].set(true); // straight
-}
-
-
-// loco is left of uncoupler
-// reverse to sensor 0, delay, slow down, to the sensor, stop
-static void spur(int spur_num)
-{
-    int sensor_num;
-    if (spur_num == 1) {
-        sensor_num = 3;
-    } else if (spur_num == 2) {
-        sensor_num = 5;
-    } else if (spur_num == 3) {
-        sensor_num = 7;
-    } else {
-        assert(false);
-    }
-
-    printf("spur %d ... ", spur_num);
-
-    // back fast
-    assert(DccApi::loco_speed_set(loco_id, -fast) == Status::Ok);
-
-    line_turnout_0(spur_num);
-
-    // wait to get to uncoupler
-    while (!sensor[1])
-        loop();
-
-    line_turnout_1(spur_num);
-
-    // go most of the way
-    loop(5'000'000);
-
-    // slow down
-    assert(DccApi::loco_speed_set(loco_id, -slow) == Status::Ok);
-    while (!sensor[sensor_num])
-        loop();
-
-    // stop
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
-
-    printf("ok\n");
-}
-
-
-// Loco+car to right of uncoupler.
-// Forward slow to uncoupler, to gap, a bit more to get couplers clear of magnet.
-// Creep back to gap, stop a bit, pull forward to uncouple, verifying uncoupling.
-static void uncouple()
-{
-    printf("uncouple ... ");
-
-    // forward until nose of loco is at uncoupler
-    assert(DccApi::loco_speed_set(loco_id, slow) == Status::Ok);
-    while (!sensor[1])
-        loop();
-
-    // creep forward until rear of loco is at uncoupler
-    assert(DccApi::loco_speed_set(loco_id, creep) == Status::Ok);
-    while (sensor[1])
-        loop();
-
-    // a bit more to get couplers clear of magnet
-    loop(mm_to_us(40, creep)); // ~50mm
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
-
-    // brief pause - couplers should be clear of magnet now
-    loop(1'000'000);
-
-    // creep back until couplers are over magnet
-    assert(DccApi::loco_speed_set(loco_id, -creep) == Status::Ok);
-    while (sensor[1])
-        loop();
-
-    // coupler should be over magnet now
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
-
-    loop(500'000);
-
-    // pull forward to uncouple (should leave car behind)
-    assert(DccApi::loco_speed_set(loco_id, creep) == Status::Ok);
-
-    loop(mm_to_us(50, creep)); // ~50mm
-
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
-
-    printf("ok\n");
-}
-
-
-// Loco should be left of uncoupler.
-// Car should have its coupler over the magnet.
-static void spot(int spur_num)
-{
-    printf("spot %d ... ", spur_num);
-
-    line_turnout_0(spur_num);
-
-    // creep back until loco clears uncoupler
-    assert(DccApi::loco_speed_set(loco_id, -creep) == Status::Ok);
-    loop(mm_to_us(100, creep)); // ~100mm
-    while (sensor[1])
-        loop();
-
-    line_turnout_1(spur_num);
-
-    // go most of the way
-    assert(DccApi::loco_speed_set(loco_id, -slow) == Status::Ok);
-    loop(mm_to_us(500, slow));
-
-    // slow down and stop at sensor 100mm from end of spur
-    assert(DccApi::loco_speed_set(loco_id, -creep) == Status::Ok);
-    int sensor_num = sensor_100(spur_num);
-    while (!sensor[sensor_num])
-        loop();
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
-
-    printf("ok\n");
-}
-
-
 // Loco should be in house.
 // Car should be on spur, blocking the 100mm sensor but not the 50mm one.
 static void fetch(int spur_num)
 {
-    printf("fetch %d ... ", spur_num);
+    printf("fetch %d\n", spur_num);
 
     line_turnout_0(spur_num);
 
-    // cab light off
-    assert(DccApi::loco_func_set(loco_id, 1, false) == Status::Ok);
+    func_set(loco->f_cab_light, false);
 
     loop(1'000'000);
 
     // slow out of house
-    assert(DccApi::loco_speed_set(loco_id, -slow) == Status::Ok);
-    loop(mm_to_us(150, slow)); // ~150mm
+    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(slow_mms));
+    loop(mm_to_us(150, slow_mms));
 
     line_turnout_1(spur_num);
 
     // medium to uncoupler
-    assert(DccApi::loco_speed_set(loco_id, -medium) == Status::Ok);
-    while (!sensor[1])
+    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(medium_mms));
+    while (!sensor_unc())
         loop();
 
     // rear of loco has reached uncoupler now; go most of the way
-    loop(mm_to_us(600, medium));
+    int most_mm = 0;
+    if (spur_num == 1)
+        most_mm = s1_s3_mm;
+    else if (spur_num == 2)
+        most_mm = s1_s5_mm;
+    else if (spur_num == 3)
+        most_mm = s1_s7_mm;
+    loop(mm_to_us(most_mm - car_len_mm - 100, medium_mms));
 
-    // slow back until the 50mm sensor is hit (creep might fail to couple)
-    assert(DccApi::loco_speed_set(loco_id, -slow) == Status::Ok);
-    int sensor_num = sensor_50(spur_num);
-    while (!sensor[sensor_num])
+    // creep back until the 50mm sensor is hit
+    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
+    while (!sensor_50(spur_num))
         loop();
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
+    DccApi::loco_speed_set(loco_id, stop);
+    loop(1'000'000);
 
-    printf("ok\n");
+    func_set(loco->f_clank, true);
+    loop(1'000'000);
+    func_set(loco->f_clank, false);
+    loop(1'000'000);
 }
 
 
-// Loco can be anywhere on main or spur1.
-// Turnout0 should be lined for spur1.
-// Acceleration and deceleration should be zero.
-// Back fast to sensor3, creep to sensor2, stop, pause.
-// Forward at specified speed.
-// Report elapsed time from clearing sensor3 to clearing sensor1.
-// On the desktop layout, the distance is 174 + 227 + 246 + 123 + 123/2 = 831.5mm
-static void speed_check(int speed)
+// On entry:
+// * Loco+car right of uncoupler, coupled
+// On return:
+// * Loco left of uncoupler, coupler clear of magnet
+// * Car just right of uncoupler with coupler over magnet
+static void uncouple()
 {
-    printf("speed_check(%d) ... ", speed);
+    printf("uncouple\n");
 
-    assert(DccApi::loco_speed_set(loco_id, -fast) == Status::Ok);
-    while (!sensor[3])
-        loop();
-    assert(DccApi::loco_speed_set(loco_id, -creep) == Status::Ok);
-    while (!sensor[2])
-        loop();
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
-    loop(2'000'000);
+    if (sensor[1])
+        printf("unexpected: sensor 1 is active\n");
 
-    assert(DccApi::loco_speed_set(loco_id, speed) == Status::Ok);
-    while (!sensor[3]) // this might already be false
-        loop();
-    while (sensor[3]) // waiting for loco to pass sensor3
-        loop();
-    uint32_t start_us = time_us_32();
-
+    // forward until nose of loco is at uncoupler (might already be there)
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(slow_mms));
     while (!sensor[1])
         loop();
-    while (sensor[1]) // waiting for loco to pass sensor3
+
+    // creep forward until rear of loco (gap) is at uncoupler
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
+    while (sensor[1])
         loop();
-    uint32_t elapsed_us = time_us_32() - start_us;
 
-    assert(DccApi::loco_speed_set(loco_id, stop) == Status::Ok);
+    // a bit more to get couplers clear of magnet (~50 mm)
+    int more_mm = 50 - loco->stop_mm(creep_mms);
+    if (more_mm > 0)
+        loop(mm_to_us(more_mm, creep_mms));
+    DccApi::loco_speed_set(loco_id, stop);
+    loop(1'000'000);
 
-    static constexpr uint32_t dist_um = 831'500;
-    uint32_t elapsed_ms = (elapsed_us + 500) / 1000;
-    uint32_t speed_mms = dist_um / elapsed_ms;
+    // couplers should be clear of magnet now
 
-    printf("%lu ms; %lu mm/s\n", elapsed_ms, speed_mms);
+    do {
+
+        // creep back until couplers are over magnet
+        DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
+        while (sensor[1])
+            loop();
+        DccApi::loco_speed_set(loco_id, stop);
+        loop(500'000);
+
+        // couplers should be over magnet now
+
+        // pull forward to uncouple (should leave car behind)
+        DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
+        loop(mm_to_us(car_len_mm / 2, creep_mms));
+        DccApi::loco_speed_set(loco_id, stop);
+        loop(500'000);
+
+        // retry if necessary
+        if (sensor[1])
+            printf("uncouple failed! retrying...\n");
+
+    } while (sensor[1]);
+
+    if (sensor[1])
+        printf("unexpected: sensor 1 is active\n");
+
+    printf("uncouple done\n");
 }
 
 
-[[maybe_unused]] static void ops_set_cv(int num, int val, const char *name);
-[[maybe_unused]] static void svc_set_cv(int num, int val, const char *name);
+// On entry:
+// * Loco should be left of uncoupler, coupler clear of magnet
+// * Car should be right of uncoupler, with its coupler over the magnet
+// On return:
+// * Loco & car on spur, not coupled
+// Errors:
+// * Sometimes the cars recouple on the way back (esp. the tank car to
+//   spur 2). If that happens, the 110 mm sensor goes inactive)
+// Return:
+// *  true if the car was left behind
+// *  false if the car is still coupled
+static bool spot(int spur_num)
+{
+    printf("spot %d\n", spur_num);
+
+    line_turnout_0(spur_num);
+
+    // creep back until loco clears uncoupler
+    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
+    loop(mm_to_us(100, creep_mms));
+    while (sensor_unc())
+        loop();
+
+    line_turnout_1(spur_num);
+
+    // spur 2 has that s-turn that causes recouplings or even derails, both
+    // observed with UP852 and the tank car, but never (yet) with any other
+    // loco or the boxcar
+    if (spur_num != 2) {
+        // spur 1 or 3, a bit faster most of the way
+        int slow_mm = unc_to_spur_mm(spur_num) - loco->len_mm - car_len_mm - 100;
+        DccApi::loco_speed_set(loco_id, -loco->speed_dcc(slow_mms));
+        loop(mm_to_us(slow_mm, slow_mms));
+    }
+
+    // slow down and stop at sensor 100mm from end of spur
+    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
+    while (!sensor_100(spur_num))
+        loop();
+    // If we stop immediately, the loco will go loco->stop_mm(creep_mms) past
+    // the sensor. We'd like to go a total of about 10 mm past the sensor.
+    int more_mm = 10 - loco->stop_mm(creep_mms);
+    if (more_mm > 0)
+        loop(mm_to_us(more_mm, creep_mms));
+    DccApi::loco_speed_set(loco_id, stop);
+    loop(1'000'000);
+
+    func_set(loco->f_clank, true);
+    loop(1'000'000);
+    func_set(loco->f_clank, false);
+    loop(1'000'000);
+
+    // Creep ahead 75 mm (3") to make sure the car is left behind.
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
+    more_mm = 75 - loco->stop_mm(creep_mms);
+    if (more_mm > 0)
+        loop(mm_to_us(more_mm, creep_mms));
+    DccApi::loco_speed_set(loco_id, stop);
+    loop(1'000'000);
+
+    // If the 100 mm sensor is inactive, the car is still coupled; return false.
+    // If the 100 mm sensor is active, the car was left behind; return true.
+    return sensor_100(spur_num);
+}
+
+
+// loco is right of uncoupler
+// forward to uncoupler, delay, slow down, to the house, stop
+static void home()
+{
+    printf("home\n");
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(zippy_mms));
+    while (!sensor_unc())
+        loop();
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(fast_mms));
+    loop(mm_to_us(75, fast_mms));
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(medium_mms));
+    loop(mm_to_us(100, medium_mms));
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(slow_mms));
+    loop(mm_to_us(100, slow_mms));
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
+    while (!sensor_home())
+        loop();
+    DccApi::loco_speed_set(loco_id, stop);
+    loop(1'000'000);
+    func_set(loco->f_cab_light, true);
+}
+
 
 static void init()
 {
@@ -529,142 +435,109 @@ static void init()
     DccApi::init(dcc_sig_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
                  dcc_rcom_uart);
 
-    printf("reset loco...");
+    printf("reset loco ... ");
     while ((s = DccApi::cv_val_set(8, 8)) != Status::Ok) {
         printf("%s.", DccApi::status(s));
-        loop(svc_err_delay_us);
+        loop(500'000);
     }
     printf("ok\n");
 
-#if 0
-    printf("read loco SN...");
-    uint32_t sn;
-    while ((s = svc_read_sn(sn)) != Status::Ok) {
-        printf("%s.", DccApi::status(s));
-        loop(svc_err_delay_us);
-    }
-    printf("%lu\n", sn);
+    loop(1'000'000);
 
-    loco = get_loco(sn);
-    assert(loco != nullptr);
-    printf("loco: %s\n", loco->name);
-#endif
-
-    printf("create loco...");
+    printf("create loco ... ");
     assert(DccApi::loco_create(loco_id) == Status::Ok);
     printf("ok\n");
 
-#if 0 // use railcom
-
-    printf("track on...");
+    printf("track on ... ");
     assert(DccApi::track_set(true) == Status::Ok);
     printf("ok\n");
 
     loop(1'000'000); // wait for loco to boot up
 
-    // the rest is done in ops mode (assumes railcom works)
+    printf("read sn ... ");
+    uint32_t sn;
+    while ((s = Loco::read_sn(loco_id, sn)) != Status::Ok) {
+        printf("%s ... ", DccApi::status(s));
+        loop(1'000'000);
+    }
+    printf("%lu\n", sn);
 
-    ops_set_cv(3, accel, "acceleration");
-    ops_set_cv(4, decel, "deceleration");
-    ops_set_cv(63, master_vol, "master volume");
+    loco = Loco::find_loco(sn);
+    assert(loco != nullptr);
+    printf("loco: %s\n", loco->name);
 
-#else // don't use railcom
+    ops_cv_val_set(3, 10);
+    ops_cv_val_set(4, 0);
+    ops_cv_val_set(63, loco->v_master);
+    ops_cv_val_set(29, cv_bits);
+    ops_cv_bit_set(29, 2, 0); // disable DC
+    ops_cv_val_set(29, cv_bits);
+    ops_cv_val_set(124, cv_bits);
+    ops_cv_bit_set(124, 2, 0); // disable startup delay
+    ops_cv_val_set(124, cv_bits);
 
-    svc_set_cv(3, accel, "acceleration");
-    svc_set_cv(4, decel, "deceleration");
-    svc_set_cv(63, master_vol, "master volume");
-
-    loop(500'000); // wait for loco to settle?
-
-    printf("track on...");
-    assert(DccApi::track_set(true) == Status::Ok);
-    printf("ok\n");
-
-    loop(1'000'000); // wait for loco to boot up
-
-#endif
-
-    printf("lights on...");
-    assert(DccApi::loco_func_set(loco_id, 0, true) == Status::Ok);
-    printf("ok\n");
-
-    printf("engine on...");
-    assert(DccApi::loco_func_set(loco_id, 8, true) == Status::Ok);
-    printf("ok\n");
+    func_set(loco->f_headlight, true);
+    func_set(loco->f_engine, snd_engine);
 
 } // init
 
 
-static void ops_set_cv(int cv_num, int cv_val, const char *name)
+static void ops_cv_val_set(int cv_num, int cv_val)
 {
     if (cv_val >= 0) {
-        printf("set %s = %d ... ", name, cv_val);
-        Status s;
-        while ((s = DccApi::loco_cv_val_set(loco_id, cv_num, cv_val)) !=
-               Status::Ok) {
-            printf("%s.", DccApi::status(s));
+        printf("cv%d = %d ... ", cv_num, cv_val);
+        while (true) {
+            Status s = DccApi::loco_cv_val_set(loco_id, cv_num, cv_val);
+            if (s == Status::Ok)
+                break;
+            printf("%s ... ", DccApi::status(s));
             loop(1'000'000);
         }
         printf("ok\n");
-    } else if (cv_val == cv_show) {
-        printf("%s = ", name);
-        Status s;
-        while ((s = DccApi::loco_cv_val_get(loco_id, cv_num, cv_val)) !=
-               Status::Ok) {
-            printf("%s.", DccApi::status(s));
+    } else if (cv_val == cv_show || cv_val == cv_bits) {
+        printf("cv%d = ", cv_num);
+        while (true) {
+            Status s = DccApi::loco_cv_val_get(loco_id, cv_num, cv_val);
+            if (s == Status::Ok)
+                break;
+            printf("%s ... ", DccApi::status(s));
             loop(1'000'000);
         }
-        printf("%d\n", cv_val);
+        if (cv_val == cv_show) {
+            printf("%d\n", cv_val);
+        } else { // cv_val == cv_bits
+            for (int b = 7; b >= 0; b--)
+                printf("%d", (cv_val >> b) & 1);
+            printf("\n");
+        }
     }
-}
+} // ops_cv_val_set
 
 
-static void svc_set_cv(int cv_num, int cv_val, const char *name)
+static void ops_cv_bit_set(int cv_num, int b_num, int b_val)
 {
-    if (cv_val >= 0) {
-        printf("set %s = %d ... ", name, cv_val);
-        Status s;
-        while ((s = DccApi::cv_val_set(cv_num, cv_val)) != Status::Ok) {
-            printf("%s.", DccApi::status(s));
+    if (b_num >= 0) {
+        printf("cv%d[%d] = %d ... ", cv_num, b_num, b_val);
+        while (true) {
+            Status s = DccApi::loco_cv_bit_set(loco_id, cv_num, b_num, b_val);
+            if (s == Status::Ok)
+                break;
+            printf("%s ... ", DccApi::status(s));
             loop(1'000'000);
         }
         printf("ok\n");
-    } else if (cv_val == cv_show) {
-        printf("%s = ", name);
-        Status s;
-        while ((s = DccApi::cv_val_get(cv_num, cv_val)) != Status::Ok) {
-            printf("%s.", DccApi::status(s));
+    } else if (b_num == cv_show) {
+        printf("cv%d[%d] = ", cv_num, b_num);
+        while (true) {
+            int cv_val;
+            Status s = DccApi::loco_cv_val_get(loco_id, cv_num, cv_val);
+            if (s == Status::Ok) {
+                b_val = (cv_val >> b_num) & 1;
+                break;
+            }
+            printf("%s ... ", DccApi::status(s));
             loop(1'000'000);
         }
-        printf("%d\n", cv_val);
+        printf("%d\n", b_val);
     }
-}
-
-
-static DccApi::Status svc_read_sn(uint32_t &sn)
-{
-    Status s;
-    // railcom page
-    s = DccApi::cv_val_set(31, 0);
-    if (s != Status::Ok) {
-        printf("svc_read_sn: %s\n", DccApi::status(s));
-        return s;
-    }
-    s = DccApi::cv_val_set(32, 255);
-    if (s != Status::Ok) {
-        printf("svc_read_sn: %s\n", DccApi::status(s));
-        return s;
-    }
-    // read SN from cv 265-268 (little-endian)
-    sn = 0;
-    for (int cv_num = 268; cv_num >= 265; cv_num--) {
-        int cv_val;
-        s = DccApi::cv_val_get(cv_num, cv_val);
-        if (s != Status::Ok) {
-            printf("svc_read_sn: %s\n", DccApi::status(s));
-            return s;
-        }
-        sn = (sn << 8) | cv_val;
-    }
-    return Status::Ok;
-}
+} // ops_cv_bit_set

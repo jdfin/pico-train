@@ -37,5 +37,10 @@ add_compile_options(-Wall -Wextra -Werror -fstack-protector-strong)
 #add_compile_options(-H)
 
 add_subdirectory(libraries)
-add_subdirectory(throttle)
+#add_subdirectory(throttle)
 add_subdirectory(circuits)
+add_subdirectory(sensor2_log)
+add_subdirectory(speeds)
+add_subdirectory(stops)
+add_subdirectory(uncouple_test)
+

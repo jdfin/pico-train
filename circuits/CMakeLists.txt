@@ -3,7 +3,6 @@ add_compile_options(-Wall -Wextra -Werror)
 
 add_executable(circuits
     circuits.cpp
-    locos.cpp
 )
 
 pico_enable_stdio_uart(circuits 0)
