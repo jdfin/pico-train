@@ -16,18 +16,24 @@ using Status = DccApi::Status;
 #include "afunc.h"
 #include "desktop_layout.h"
 #include "sensor.h"
+#include "sensor2.h" // spur1 only
 #include "turnout.h"
 //
 #include "config.h"
 #include "locos.h"
 
-static constexpr bool snd_engine = false;
+static constexpr bool snd_engine = true;
+static constexpr bool snd_horn = true;
+static constexpr bool snd_bell = true;
 
 static AFunc afunc;
 
 static constexpr int loco_id = 3;
 
 static const Loco *loco = nullptr;
+
+static constexpr int sensor2_gpio = 15; // pwm slice 7 channel B
+static Sensor2 sensor2(sensor2_gpio);   // end of spur1
 
 static const int zippy_mms = 300;
 static const int fast_mms = 150;
@@ -55,12 +61,34 @@ static void ops_cv_bit_set(int cv_num, int b_num, int b_val);
 
 static void init();
 static void loop(int32_t for_us = 0);
-static void func_set(int f_num, bool on, bool verbose=false);
+static void func_set(int f_num, bool on, bool verbose = false);
 
-[[maybe_unused]]
-static void toots(uint32_t on1_us = 0, uint32_t off1_us = 0,
-                  uint32_t on2_us = 0, uint32_t off2_us = 0,
-                  uint32_t on3_us = 0);
+[[maybe_unused]] static constexpr int toot_long_us = 750'000;
+[[maybe_unused]] static constexpr int toot_short_us = 250'000;
+static constexpr int toot_space_us = 500'000;
+
+static void toots(uint32_t on1_us, uint32_t off1_us = 0, uint32_t on2_us = 0,
+                  uint32_t off2_us = 0, uint32_t on3_us = 0);
+
+static void toots_backing_up()
+{
+    if (snd_horn && loco->f_horn >= 0) {
+        toots(toot_short_us, toot_space_us, toot_short_us, toot_space_us,
+              toot_short_us);
+        loop(toot_short_us + toot_space_us + toot_short_us + toot_space_us +
+             toot_short_us);
+        loop(1'000'000);
+    }
+}
+
+static void toots_proceeding()
+{
+    if (snd_horn && loco->f_horn >= 0) {
+        toots(toot_long_us, toot_space_us, toot_long_us);
+        loop(toot_long_us + toot_space_us + toot_long_us);
+        loop(1'000'000);
+    }
+}
 
 static bool check_setup(int &spur_a, int &spur_b);
 static void fetch(int spur_num);
@@ -76,7 +104,7 @@ int main()
 
     SysLed::pattern(50, 950);
 
-#if 0
+#if 1
     while (!stdio_usb_connected()) {
         SysLed::loop();
         tight_loop_contents();
@@ -108,11 +136,12 @@ int main()
     int spur_e = 6 - spur_a - spur_b; // 1+2+3=6
 
     // let the supercap charge some before trying to move
-    const uint32_t charge_us = 10'000'000;
+    const uint32_t charge_us = 5'000'000;
     const uint32_t delay_us = charge_us - (time_us_32() - track_on_us);
     loop(delay_us);
 
     while (true) {
+
         fetch(spur_a);
 
         do {
@@ -197,31 +226,52 @@ static bool check_setup(int &spur_a, int &spur_b)
     spur_a = 0;
     spur_b = 0;
 
-    for (int s = 1; s <= 3; ++s) {
-        if (sensor_50(s)) {
-            printf("check_setup: ERROR: 50mm sensor on spur %d active\n", s);
+    // Spur1 has a Sensor2 at the end. If there is a car on spur1, it must be
+    // in detection range, but not too close.
+    constexpr int in_range_mm = 100; // 4"
+    constexpr int too_close_mm = 25; // 1"
+    int dist_mm = sensor2.dist_mm();
+    if (dist_mm < in_range_mm) {
+        if (dist_mm < too_close_mm) {
+            printf(
+                "check_setup: ERROR: car on spur 1 is too close to end (%d "
+                "mm)\n",
+                dist_mm);
             ok = false;
+        } else {
+            printf("check_setup: car detected on spur 1 (%d mm)\n", dist_mm);
         }
-        if (sensor_100(s)) {
+        spur_a = 1; // even if it's too close
+    }
+
+    // spurs 2 and 3 have pairs of 50mm and 100mm sensors
+    for (int spur = 2; spur <= 3; ++spur) {
+        if (sensor_50(spur)) {
+            printf(
+                "check_setup: ERROR: car on spur %d is too close to end (< 50 "
+                "mm)\n",
+                spur);
+            ok = false;
+            // will also be detected by 100mm sensor, so spur_a/b will also be set
+        }
+        if (sensor_100(spur)) {
             if (spur_a == 0) {
-                spur_a = s;
+                spur_a = spur;
             } else if (spur_b == 0) {
-                spur_b = s;
+                spur_b = spur;
             } else {
-                assert(s == 3);
-                printf(
-                    "check_setup: ERROR: 100mm sensors on all spurs "
-                    "active\n");
+                assert(spur == 3);
+                printf("check_setup: ERROR: cars detected on all spurs\n");
                 ok = false;
             }
         }
     }
+
     if (spur_a == 0) {
-        printf("check_setup: ERROR: no 100mm sensors active\n");
+        printf("check_setup: ERROR: no cars on any spurs\n");
         ok = false;
     } else if (spur_b == 0) {
-        printf("check_setup: ERROR: only one 100mm sensor active (spur %d)\n",
-               spur_a);
+        printf("check_setup: ERROR: only one car detected (spur %d)\n", spur_a);
         ok = false;
     }
 
@@ -230,7 +280,8 @@ static bool check_setup(int &spur_a, int &spur_b)
 
 
 // Loco should be in house.
-// Car should be on spur, blocking the 100mm sensor but not the 50mm one.
+// Car should be on spur, blocking the 100mm sensor but not the 50mm one, or
+// in view of the sensor but not too close to it.
 static void fetch(int spur_num)
 {
     printf("fetch %d\n", spur_num);
@@ -241,14 +292,16 @@ static void fetch(int spur_num)
 
     loop(1'000'000);
 
+    toots_backing_up();
+
     // slow out of house
-    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(slow_mms));
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-slow_mms));
     loop(mm_to_us(150, slow_mms));
 
     line_turnout_1(spur_num);
 
     // medium to uncoupler
-    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(medium_mms));
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-medium_mms));
     while (!sensor_unc())
         loop();
 
@@ -262,16 +315,34 @@ static void fetch(int spur_num)
         most_mm = s1_s7_mm;
     loop(mm_to_us(most_mm - car_len_mm - 100, medium_mms));
 
-    // creep back until the 50mm sensor is hit
-    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
-    while (!sensor_50(spur_num))
-        loop();
+    // creep back until we get the car
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-creep_mms));
+
+    if (spur_num == 1) {
+        // until the car moves
+        const int dist_mm = sensor2.dist_mm();
+        printf("fetch 1: car detected at %d mm\n", dist_mm);
+        constexpr int move_mm = 15;
+        while (sensor2.dist_mm() > (dist_mm - move_mm))
+            loop();
+    } else {
+        assert(spur_num == 2 || spur_num == 3);
+        // until the 50mm sensor is hit
+        while (!sensor_50(spur_num))
+            loop();
+    }
+
     DccApi::loco_speed_set(loco_id, stop);
     loop(1'000'000);
 
-    func_set(loco->f_clank, true);
-    loop(1'000'000);
-    func_set(loco->f_clank, false);
+    if (spur_num == 1)
+        printf("fetch 1: car moved to %d mm\n", sensor2.dist_mm());
+
+    if (loco->f_clank >= 0) {
+        func_set(loco->f_clank, true);
+        loop(1'000'000);
+        func_set(loco->f_clank, false);
+    }
     loop(1'000'000);
 }
 
@@ -287,6 +358,8 @@ static void uncouple()
 
     if (sensor[1])
         printf("unexpected: sensor 1 is active\n");
+
+    toots_proceeding();
 
     // forward until nose of loco is at uncoupler (might already be there)
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(slow_mms));
@@ -310,7 +383,7 @@ static void uncouple()
     do {
 
         // creep back until couplers are over magnet
-        DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
+        DccApi::loco_speed_set(loco_id, loco->speed_dcc(-creep_mms));
         while (sensor[1])
             loop();
         DccApi::loco_speed_set(loco_id, stop);
@@ -342,6 +415,7 @@ static void uncouple()
 // * Car should be right of uncoupler, with its coupler over the magnet
 // On return:
 // * Loco & car on spur, not coupled
+// * Loco creeping forward
 // Errors:
 // * Sometimes the cars recouple on the way back (esp. the tank car to
 //   spur 2). If that happens, the 110 mm sensor goes inactive)
@@ -354,52 +428,98 @@ static bool spot(int spur_num)
 
     line_turnout_0(spur_num);
 
+    if (snd_bell)
+        func_set(loco->f_bell, true);
+
+    loop(1'000'000);
+
     // creep back until loco clears uncoupler
-    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-creep_mms));
     loop(mm_to_us(100, creep_mms));
     while (sensor_unc())
         loop();
 
     line_turnout_1(spur_num);
 
-    // spur 2 has that s-turn that causes recouplings or even derails, both
+    // Spur 2 has an s-turn that can cause a recoupling or even derail, both
     // observed with UP852 and the tank car, but never (yet) with any other
-    // loco or the boxcar
+    // loco or the boxcar.
     if (spur_num != 2) {
         // spur 1 or 3, a bit faster most of the way
-        int slow_mm = unc_to_spur_mm(spur_num) - loco->len_mm - car_len_mm - 100;
-        DccApi::loco_speed_set(loco_id, -loco->speed_dcc(slow_mms));
+        int slow_mm =
+            unc_to_spur_mm(spur_num) - loco->len_mm - car_len_mm - 100;
+        DccApi::loco_speed_set(loco_id, loco->speed_dcc(-slow_mms));
         loop(mm_to_us(slow_mm, slow_mms));
     }
 
-    // slow down and stop at sensor 100mm from end of spur
-    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
-    while (!sensor_100(spur_num))
-        loop();
-    // If we stop immediately, the loco will go loco->stop_mm(creep_mms) past
-    // the sensor. We'd like to go a total of about 10 mm past the sensor.
-    int more_mm = 10 - loco->stop_mm(creep_mms);
-    if (more_mm > 0)
-        loop(mm_to_us(more_mm, creep_mms));
+    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-creep_mms));
+
+    constexpr int stop_mm = 75; // stop this far from the sensor
+    int detected_mm = 0;        // where sensor first detected car
+    int last_mm = 0;            // last reading before stopping
+
+    if (spur_num == 1) {
+        // stop when close enough to sensor2
+        do {
+            last_mm = sensor2.dist_mm();
+            if (detected_mm == 0 && last_mm <= 500)
+                detected_mm = last_mm;
+            loop();
+        } while (last_mm > stop_mm);
+    } else {
+        // slow down and stop at sensor 100mm from end of spur
+        while (!sensor_100(spur_num))
+            loop();
+        // If we stop immediately, the loco will go loco->stop_mm(creep_mms)
+        // past the sensor. We'd like to go a total of about 10 mm past it.
+        int more_mm = 10 - loco->stop_mm(creep_mms);
+        if (more_mm > 0)
+            loop(mm_to_us(more_mm, creep_mms));
+    }
+
     DccApi::loco_speed_set(loco_id, stop);
     loop(1'000'000);
 
-    func_set(loco->f_clank, true);
-    loop(1'000'000);
-    func_set(loco->f_clank, false);
+    if (snd_bell)
+        func_set(loco->f_bell, false);
+
+    if (spur_num == 1)
+        printf("spot 1: detected at %d mm, stopped at %d mm, left at %d mm\n",
+               detected_mm, last_mm, sensor2.dist_mm());
+
+    if (loco->f_clank >= 0) {
+        func_set(loco->f_clank, true);
+        loop(1'000'000);
+        func_set(loco->f_clank, false);
+    }
     loop(1'000'000);
 
-    // Creep ahead 75 mm (3") to make sure the car is left behind.
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
-    more_mm = 75 - loco->stop_mm(creep_mms);
-    if (more_mm > 0)
-        loop(mm_to_us(more_mm, creep_mms));
-    DccApi::loco_speed_set(loco_id, stop);
-    loop(1'000'000);
+    toots_proceeding();
 
-    // If the 100 mm sensor is inactive, the car is still coupled; return false.
-    // If the 100 mm sensor is active, the car was left behind; return true.
-    return sensor_100(spur_num);
+    // Make sure the car is left behind
+    if (spur_num == 1) {
+        // Creep ahead a bit and make sure the car does not move.
+        int dist_mm = sensor2.dist_mm();
+        DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
+        loop(mm_to_us(30, creep_mms));
+        //DccApi::loco_speed_set(loco_id, stop);
+        //loop(1'000'000);
+        // If the car did not move too much, it is not coupled; return true.
+        return (sensor2.dist_mm() - dist_mm) < 15;
+    } else {
+        // Creep ahead 75 mm (3") to make sure the car is left behind.
+        DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
+        int more_mm = 75 - loco->stop_mm(creep_mms);
+        if (more_mm > 0)
+            loop(mm_to_us(more_mm, creep_mms));
+
+        //DccApi::loco_speed_set(loco_id, stop);
+        //loop(1'000'000);
+
+        // If the 100 mm sensor is inactive, the car is still coupled; return false.
+        // If the 100 mm sensor is active, the car was left behind; return true.
+        return sensor_100(spur_num);
+    }
 }
 
 
@@ -429,6 +549,8 @@ static void home()
 static void init()
 {
     Status s;
+
+    sensor2.init();
 
     Turnout::init(tp_gpio);
 
@@ -476,6 +598,13 @@ static void init()
     ops_cv_bit_set(124, 2, 0); // disable startup delay
     ops_cv_val_set(124, cv_bits);
 
+    if (snd_engine && loco->v_engine >= 0) {
+        ops_cv_val_set(31, 16);
+        ops_cv_val_set(32, 1);
+        ops_cv_val_set(259, cv_show);
+        ops_cv_val_set(259, loco->v_engine);
+    }
+
     func_set(loco->f_headlight, true);
     func_set(loco->f_engine, snd_engine);
 
@@ -496,18 +625,19 @@ static void ops_cv_val_set(int cv_num, int cv_val)
         printf("ok\n");
     } else if (cv_val == cv_show || cv_val == cv_bits) {
         printf("cv%d = ", cv_num);
+        int val;
         while (true) {
-            Status s = DccApi::loco_cv_val_get(loco_id, cv_num, cv_val);
+            Status s = DccApi::loco_cv_val_get(loco_id, cv_num, val);
             if (s == Status::Ok)
                 break;
             printf("%s ... ", DccApi::status(s));
             loop(1'000'000);
         }
         if (cv_val == cv_show) {
-            printf("%d\n", cv_val);
+            printf("%d\n", val);
         } else { // cv_val == cv_bits
             for (int b = 7; b >= 0; b--)
-                printf("%d", (cv_val >> b) & 1);
+                printf("%d", (val >> b) & 1);
             printf("\n");
         }
     }
