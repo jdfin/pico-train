@@ -12,21 +12,11 @@
 #include "dcc_api.h"
 using Status = DccApi::Status;
 // railroad
+#include "desktop_layout.h"
 #include "sensor.h"
 //
 #include "config.h"
 #include "locos.h"
-
-///// Sensors ////////////////////////////////////////////////////////////////
-
-static constexpr int sensor_max = 8;
-
-static Sensor sensor[sensor_max] = {
-    Sensor(s0_gpio), Sensor(s1_gpio), Sensor(s2_gpio), Sensor(s3_gpio),
-    Sensor(s4_gpio), Sensor(s5_gpio), Sensor(s6_gpio), Sensor(s7_gpio),
-};
-
-///// Locos //////////////////////////////////////////////////////////////////
 
 static constexpr int loco_id = 3;
 
@@ -158,7 +148,7 @@ static void loop(int32_t for_us)
 // Don't care about the other sensors.
 static bool check_setup()
 {
-    if (!sensor[1]) {
+    if (!sensor_unc()) {
         printf("ERROR: loco should be in front of the uncoupler sensor\n");
         return false;
     } else {
@@ -173,7 +163,7 @@ static bool check_setup()
 // Deceleration will be set here.
 // Back fast a little way.
 // Forward at specified speed.
-// When sensor1 detects loco, stop.
+// When sensor detects loco, stop.
 // Pause to measure stopping distance.
 static void stop_test(int dec, int speed_mms)
 {
@@ -182,9 +172,9 @@ static void stop_test(int dec, int speed_mms)
     // back up a bit
     ops_cv_val_set(4, 0); // deceleration
     DccApi::loco_speed_set(loco_id, -loco->speed_dcc(backup_mms));
-    while (!sensor[1])
+    while (!sensor_unc())
         loop(); // loop here if prev test got us left of uncoupler
-    while (sensor[1])
+    while (sensor_unc())
         loop(); // loop here to get right of uncoupler
     loop(1'000'000);
     DccApi::loco_speed_set(loco_id, 0);
@@ -193,7 +183,7 @@ static void stop_test(int dec, int speed_mms)
     // charge!
     ops_cv_val_set(4, dec); // deceleration we're testing
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(speed_mms));
-    while (!sensor[1])
+    while (!sensor_unc())
         loop();
     DccApi::loco_speed_set(loco_id, 0);
 

@@ -60,11 +60,10 @@ static constexpr int loco_id = 3;
 
 static const Loco *loco = nullptr;
 
-static constexpr int sensor2_gpio = 15; // pwm slice 7 channel B
-static Sensor2 sensor2(sensor2_gpio);
-
 static void init();
 static void loop(int32_t for_us = 0);
+
+static constexpr int spur_num = 1; // which spur to test with
 
 
 int main()
@@ -90,9 +89,8 @@ int main()
 
     init(); // track, dcc, loco
 
-    sensor2.init();
-
-    turnout[0].set(true); // straight, mainline to spur1
+    line_turnout_0(spur_num);
+    line_turnout_1(spur_num);
 
     // let the loco charge some before trying to move
     uint32_t track_on_us = time_us_32();
@@ -127,6 +125,12 @@ static void loop(int32_t for_us)
 static void init()
 {
     Status s;
+
+    for (int i = 0; i < sensor_max; i++)
+        sensor[i].init();
+
+    for (int i = 0; i < sensor2_max; i++)
+        sensor2[i].init();
 
     Turnout::init(tp_gpio);
 
@@ -172,7 +176,6 @@ static void init()
 
 namespace ModePoll {
 
-
 // log count periodically
 static void mode_poll()
 {
@@ -182,7 +185,7 @@ static void mode_poll()
 
     int speed_mms = 50;
 
-    printf("T S3 S2 MM\n");
+    printf("T MM\n");
 
     while (true) {
         DccApi::loco_speed_set(loco_id, loco->speed_dcc(speed_mms));
@@ -190,29 +193,23 @@ static void mode_poll()
         do {
             now_us = time_us_32();
         } while (int32_t(now_us - poll_us) < 0);
-        bool s1 = sensor[1];
-        bool s2 = sensor[2];
-        bool s3 = sensor[3];
-        int d_mm = sensor2.dist_mm();
-        if (s2 || s3 || d_mm >= 0) {
+        int d_mm = sensor_spur(spur_num).dist_mm();
+        if (d_mm != INT_MAX) {
             static uint32_t zero_us = now_us;
-            printf("%0.1f %d %d %d\n", (now_us - zero_us) / 1'000'000.0, s3, s2,
-                   d_mm);
+            printf("%0.1f %d\n", (now_us - zero_us) / 1'000'000.0, d_mm);
         }
-        if (s2)                          // end of spur1
+        if (d_mm <= 50)                  // end of spur1
             speed_mms = +abs(speed_mms); // go forward
-        if (s1)                          // uncoupler
+        if (sensor_unc())                // uncoupler
             speed_mms = -abs(speed_mms); // go backward
         poll_us += poll_interval_us;
     }
 }
 
-
 } // namespace ModePoll
 
 
 namespace ModeRaw {
-
 
 // start with the first time something is detected
 static uint32_t zero_us = 0;
@@ -249,11 +246,11 @@ static void callback(uint16_t count, intptr_t)
 static void mode_raw()
 {
     // log every count update
-    sensor2.set_callback(callback, 0);
+    sensor_spur(spur_num).set_callback(callback, 0);
 
     // drive to the end of spur1
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(-speed_mms));
-    while (!sensor[2])
+    while (sensor_spur(spur_num).dist_mm() > 50)
         loop();
 
     // drive about fwd_mm forward
@@ -263,7 +260,7 @@ static void mode_raw()
     DccApi::loco_speed_set(loco_id, 0);
     loop(1'000'000);
 
-    sensor2.set_callback(nullptr, 0);
+    sensor_spur(spur_num).set_callback(nullptr, 0);
 
     // print log
     printf("T Count Dist_mm\n");
@@ -295,11 +292,11 @@ static void mode_spot()
     // push back and leave car
 
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(-fast_mms));
-    while (sensor2.dist_mm() > slow_mm)
+    while (sensor_spur(spur_num).dist_mm() > slow_mm)
         loop();
 
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(-slow_mms));
-    while (sensor2.dist_mm() > stop_mm)
+    while (sensor_spur(spur_num).dist_mm() > stop_mm)
         loop();
 
     DccApi::loco_speed_set(loco_id, 0);
@@ -315,12 +312,10 @@ static void mode_spot()
     loop(1'000'000);
 }
 
-
 } // namespace ModeSpot
 
 
 namespace ModeFetch {
-
 
 // back slowly until car moves, then pull out
 
@@ -332,10 +327,10 @@ static constexpr int fast_mms = 50;
 static void mode_fetch()
 {
     // get initial reading on the car
-    int dist_mm = sensor2.dist_mm();
+    int dist_mm = sensor_spur(spur_num).dist_mm();
 
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(-slow_mms));
-    while (sensor2.dist_mm() > (dist_mm - move_mm))
+    while (sensor_spur(spur_num).dist_mm() > (dist_mm - move_mm))
         loop();
 
     DccApi::loco_speed_set(loco_id, 0);
@@ -351,6 +346,5 @@ static void mode_fetch()
     DccApi::loco_speed_set(loco_id, 0);
     loop(1'000'000);
 }
-
 
 } // namespace ModeFetch

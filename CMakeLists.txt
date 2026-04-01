@@ -40,7 +40,7 @@ add_subdirectory(libraries)
 #add_subdirectory(throttle)
 add_subdirectory(circuits)
 add_subdirectory(sensor2_log)
-add_subdirectory(speeds)
+#add_subdirectory(speeds) needs old sensor setup
 add_subdirectory(stops)
 add_subdirectory(uncouple_test)
 

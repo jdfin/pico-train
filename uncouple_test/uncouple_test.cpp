@@ -12,12 +12,11 @@
 #include "dcc_api.h"
 using Status = DccApi::Status;
 // railroad
+#include "config.h"
 #include "desktop_layout.h"
+#include "locos.h"
 #include "sensor.h"
 #include "turnout.h"
-//
-#include "config.h"
-#include "locos.h"
 
 ///// Locos //////////////////////////////////////////////////////////////////
 
@@ -76,7 +75,7 @@ int main()
 
     // let the loco charge some before trying to move
     uint32_t track_on_us = time_us_32();
-    const uint32_t charge_us = 10'000'000;
+    const uint32_t charge_us = 5'000'000;
     const uint32_t delay_us = charge_us - (time_us_32() - track_on_us);
     loop(delay_us);
 
@@ -110,26 +109,26 @@ static void loop(int32_t for_us)
 // * Loco+car right of uncoupler, coupled
 static void fetch()
 {
-    printf("Fetch\n");
+    printf("fetch\n");
 
-    if (sensor[1])
-        printf("sensor 1 active is unexpected\n");
+    if (sensor_unc())
+        printf("uncoupler sensor active is unexpected\n");
 
     // slow to uncoupler
     DccApi::loco_speed_set(loco_id, -loco->speed_dcc(slow_mms));
-    while (!sensor[1])
+    while (!sensor_unc())
         loop();
     // rear of loco is at uncoupler
     DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
-    while (sensor[1])
+    while (sensor_unc())
         loop();
     // front of loco has cleared uncoupler
     loop(mm_to_us(10, creep_mms));
     DccApi::loco_speed_set(loco_id, stop);
     loop(1'000'000);
 
-    if (sensor[1])
-        printf("sensor 1 active is unexpected\n");
+    if (sensor_unc())
+        printf("uncoupler sensor active is unexpected\n");
 }
 
 
@@ -140,19 +139,19 @@ static void fetch()
 // * Car just right of uncoupler with coupler over magnet
 static void uncouple()
 {
-    printf("Uncouple\n");
+    printf("uncouple\n");
 
-    if (sensor[1])
-        printf("sensor 1 active is unexpected\n");
+    if (sensor_unc())
+        printf("uncoupler sensor active is unexpected\n");
 
     // forward until nose of loco is at uncoupler (might already be there)
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(slow_mms));
-    while (!sensor[1])
+    while (!sensor_unc())
         loop();
 
     // creep forward until rear of loco (gap) is at uncoupler
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(creep_mms));
-    while (sensor[1])
+    while (sensor_unc())
         loop();
 
     // a bit more to get couplers clear of magnet (~50 mm)
@@ -168,7 +167,7 @@ static void uncouple()
 
         // creep back until couplers are over magnet
         DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
-        while (sensor[1])
+        while (sensor_unc())
             loop();
         DccApi::loco_speed_set(loco_id, stop);
         loop(500'000);
@@ -182,13 +181,13 @@ static void uncouple()
         loop(500'000);
 
         // retry if necessary
-        if (sensor[1])
-            printf("Uncouple failed! Retrying...\n");
+        if (sensor_unc())
+            printf("uncouple failed, retrying...\n");
 
-    } while (sensor[1]);
+    } while (sensor_unc());
 
-    if (sensor[1])
-        printf("sensor 1 active is unexpected\n");
+    if (sensor_unc())
+        printf("uncoupler sensor active is unexpected\n");
 }
 
 
@@ -199,25 +198,25 @@ static void uncouple()
 // * Loco & car right of uncoupler, not coupled
 static void spot()
 {
-    printf("Spot\n");
+    printf("spot\n");
 
-    if (sensor[1])
-        printf("sensor 1 active is unexpected\n");
+    if (sensor_unc())
+        printf("uncoupler sensor active is unexpected\n");
 
     // creep back until rear of loco gets to sensor
     DccApi::loco_speed_set(loco_id, -loco->speed_dcc(creep_mms));
-    while (!sensor[1])
+    while (!sensor_unc())
         loop();
 
     // continue until loco clears uncoupler
-    while (sensor[1])
+    while (sensor_unc())
         loop();
 
     DccApi::loco_speed_set(loco_id, stop);
     loop(1'000'000);
 
-    if (sensor[1])
-        printf("sensor 1 active is unexpected\n");
+    if (sensor_unc())
+        printf("uncoupler sensor active is unexpected\n");
 }
 
 
@@ -228,12 +227,12 @@ static void spot()
 // * Car right of uncoupler, about a loco-lenth away
 static void home()
 {
-    printf("Home\n");
+    printf("home\n");
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(medium_mms));
-    while (!sensor[1])
+    while (!sensor_unc())
         loop();
     DccApi::loco_speed_set(loco_id, loco->speed_dcc(slow_mms));
-    while (sensor[1])
+    while (sensor_unc())
         loop();
     // go another 60 mm and stop
     int more_mm = 60 - loco->stop_mm(slow_mms);
@@ -248,12 +247,18 @@ static void init()
 {
     Status s;
 
+    for (int i = 0; i < sensor_max; i++)
+        sensor[i].init();
+
+    for (int i = 0; i < sensor2_max; i++)
+        sensor2[i].init();
+
     Turnout::init(tp_gpio);
 
     DccApi::init(dcc_sig_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
                  dcc_rcom_uart);
 
-    printf("Reset loco ... ");
+    printf("reset loco ... ");
     while ((s = DccApi::cv_val_set(8, 8)) != Status::Ok) {
         printf("%s ... ", DccApi::status(s));
         loop(500'000);
@@ -262,11 +267,11 @@ static void init()
 
     loop(1'000'000);
 
-    printf("Create loco ... ");
+    printf("create loco ... ");
     assert(DccApi::loco_create(loco_id) == Status::Ok);
     printf("ok\n");
 
-    printf("Track on ... ");
+    printf("track on ... ");
     assert(DccApi::track_set(true) == Status::Ok);
     printf("ok\n");
 
@@ -277,11 +282,11 @@ static void init()
         printf("%s ... ", DccApi::status(s));
         loop(500'000);
     }
-    printf("SN = %lu\n", sn);
+    printf("sn = %lu\n", sn);
 
     loco = Loco::find_loco(sn);
     assert(loco != nullptr);
-    printf("Loco: %s\n", loco->name);
+    printf("loco: %s\n", loco->name);
 
     DccApi::loco_cv_val_set(loco_id, 3, 0);
     DccApi::loco_cv_val_set(loco_id, 4, 0);
