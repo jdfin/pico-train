@@ -13,6 +13,7 @@
 #include "sys_led.h"
 #if USE_WS2812
 #include "ws2812.h"
+#include "lights.h"
 #else
 #include "rgb.h"
 #endif
@@ -41,7 +42,7 @@ static const Loco *loco = nullptr;
 
 #if USE_WS2812
 static Ws2812 ws2812(ws2812_gpio, 4);
-static constexpr int ws2812_brt = 0x7f;
+static Lights lights(ws2812, 25);
 #else
 static Rgb rgb(led_red_gpio, led_green_gpio, led_blue_gpio);
 #endif
@@ -111,7 +112,7 @@ static void wait_run(bool set_sound = true)
         return;
 
 #if USE_WS2812
-    ws2812.set(ws2812_brt, 0, 0);
+    lights.red();
 #else
     rgb.red();
 #endif
@@ -128,7 +129,7 @@ static void wait_run(bool set_sound = true)
 
     SysLed::off();
 #if USE_WS2812
-    ws2812.set(ws2812_brt, ws2812_brt, ws2812_brt);
+    lights.white();
 #else
     rgb.white();
 #endif
@@ -155,7 +156,7 @@ int main()
     DesktopOps::set_loop(loop);
 
 #if USE_WS2812
-    ws2812.set(ws2812_brt, ws2812_brt, ws2812_brt);
+    lights.white();
 #else
     rgb.white();
 #endif
@@ -187,10 +188,11 @@ int main()
         func_set(loco->f_cab_light, false);
         loop(1'000'000);
 
+        // turn off in 8 seconds (out of house)
 #if USE_WS2812
-        ws2812.set(0, 0, 0);
+        lights.off(8'000);
 #else
-        rgb.off(8'000); // turn off in 8 seconds (out of house)
+        rgb.off(8'000);
 #endif
         toots_backing_up();
         DesktopOps::fetch(loco_id, loco, spur_a);
@@ -210,10 +212,11 @@ int main()
         spur_a = spur_b;
         spur_b = spur_e;
         spur_e = 6 - spur_a - spur_b; // 1+2+3=6
+        // turn lights on in 5 seconds (approaching house)
 #if USE_WS2812
-        ws2812.set(ws2812_brt, ws2812_brt, ws2812_brt);
+        lights.white(5'000);
 #else
-        rgb.white(5'000); // turn on in 5 seconds (approaching house)
+        rgb.white(5'000);
 #endif
         DesktopOps::home(loco_id, loco);
         loop(1'000'000);
@@ -234,7 +237,9 @@ static void loop(int32_t for_us)
     int32_t end_us = time_us_32s() + for_us;
     while (end_us - time_us_32s() >= 0) {
         SysLed::loop();
-#if !USE_WS2812
+#if USE_WS2812
+        lights.loop();
+#else
         rgb.loop();
 #endif
         afunc.loop();
@@ -342,6 +347,7 @@ static void init()
                  dcc_rcom_uart);
 
     ws2812.init();
+    lights.off();
 
     Status s;
 
