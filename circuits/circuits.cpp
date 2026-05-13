@@ -11,12 +11,8 @@
 // misc
 #include "buf_log.h"
 #include "sys_led.h"
-#if USE_WS2812
+// ws2812
 #include "ws2812.h"
-#include "lights.h"
-#else
-#include "rgb.h"
-#endif
 // dcc
 #include "dcc_api.h"
 using Status = DccApi::Status;
@@ -24,6 +20,7 @@ using Status = DccApi::Status;
 #include "afunc.h"
 #include "desktop_layout.h"
 #include "desktop_ops.h"
+#include "lights.h"
 #include "locos.h"
 #include "sensor.h"
 #include "sensor2.h"
@@ -40,12 +37,9 @@ static constexpr int loco_id = 3;
 
 static const Loco *loco = nullptr;
 
-#if USE_WS2812
+// lights in house is a strip of ws2812; use four of them
 static Ws2812 ws2812(ws2812_gpio, 4);
 static Lights lights(ws2812, 25);
-#else
-static Rgb rgb(led_red_gpio, led_green_gpio, led_blue_gpio);
-#endif
 
 // value >= 0 means set the cv to that value; negative values are special
 static constexpr int cv_none = -1; // don't change, don't read
@@ -111,11 +105,9 @@ static void wait_run(bool set_sound = true)
     if (Desktop::sw[0])
         return;
 
-#if USE_WS2812
+    // waiting for switch; house lights red, pico led blinking
+
     lights.red();
-#else
-    rgb.red();
-#endif
     SysLed::pattern(50, 950);
 
     while (!Desktop::sw[0]) {
@@ -128,11 +120,7 @@ static void wait_run(bool set_sound = true)
     }
 
     SysLed::off();
-#if USE_WS2812
     lights.white();
-#else
-    rgb.white();
-#endif
 }
 
 static bool check_setup(int &spur_a, int &spur_b);
@@ -155,11 +143,7 @@ int main()
 
     DesktopOps::set_loop(loop);
 
-#if USE_WS2812
     lights.white();
-#else
-    rgb.white();
-#endif
 
     int32_t track_on_us = time_us_32s();
 
@@ -176,7 +160,8 @@ int main()
     // spur_e is initially empty
     int spur_e = 6 - spur_a - spur_b; // 1+2+3=6
 
-    // let the loco's supercap charge some before trying to move
+    // Let the loco's supercap charge some before trying to move.
+    // (I don't know if this really matters or helps.)
     const int32_t charge_us = 5'000'000;
     const int32_t delay_us = charge_us - (time_us_32s() - track_on_us);
     loop(delay_us);
@@ -188,12 +173,7 @@ int main()
         func_set(loco->f_cab_light, false);
         loop(1'000'000);
 
-        // turn off in 8 seconds (out of house)
-#if USE_WS2812
-        lights.off(8'000);
-#else
-        rgb.off(8'000);
-#endif
+        lights.off(8'000); // turn house lights off in 8 seconds (when out of house)
         toots_backing_up();
         DesktopOps::fetch(loco_id, loco, spur_a);
         // XXX check that the fetch resulted in coupling
@@ -212,12 +192,7 @@ int main()
         spur_a = spur_b;
         spur_b = spur_e;
         spur_e = 6 - spur_a - spur_b; // 1+2+3=6
-        // turn lights on in 5 seconds (approaching house)
-#if USE_WS2812
-        lights.white(5'000);
-#else
-        rgb.white(5'000);
-#endif
+        lights.white(5'000); // turn house lights on in 5 seconds (when approaching house)
         DesktopOps::home(loco_id, loco);
         loop(1'000'000);
         func_set(loco->f_cab_light, true);
@@ -237,11 +212,7 @@ static void loop(int32_t for_us)
     int32_t end_us = time_us_32s() + for_us;
     while (end_us - time_us_32s() >= 0) {
         SysLed::loop();
-#if USE_WS2812
         lights.loop();
-#else
-        rgb.loop();
-#endif
         afunc.loop();
         BufLog::loop();
         tight_loop_contents();
