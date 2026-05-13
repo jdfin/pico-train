@@ -39,7 +39,8 @@ static const Loco *loco = nullptr;
 
 // lights in house is a strip of ws2812; use four of them
 static Ws2812 ws2812(ws2812_gpio, 4);
-static Lights lights(ws2812, 25);
+static constexpr int house_pct = 50;
+static Lights lights(ws2812, house_pct);
 
 // value >= 0 means set the cv to that value; negative values are special
 static constexpr int cv_none = -1; // don't change, don't read
@@ -53,8 +54,9 @@ static void init();
 static void loop(int32_t for_us = 0);
 static void func_set(int f_num, bool on, bool verbose = false);
 
-static void toots(uint32_t on1_us, uint32_t off1_us = 0, uint32_t on2_us = 0,
-                  uint32_t off2_us = 0, uint32_t on3_us = 0);
+static void toots(int32_t on1_us, //
+                  int32_t off1_us = 0, int32_t on2_us = 0, //
+                  int32_t off2_us = 0, int32_t on3_us = 0);
 
 inline int32_t time_us_32s()
 {
@@ -81,10 +83,10 @@ static void toots_proceeding()
 
 static void uncoupler_sensor(bool active, intptr_t)
 {
-    static uint32_t last_us = UINT32_MAX; // last time this callback was called
-    uint32_t now_us = time_us_32();
+    static int32_t last_us = INT32_MAX; // last time this callback was called
+    int32_t now_us = time_us_32s();
     printf("uncoupler sensor %s", active ? "active" : "inactive");
-    if (last_us != UINT32_MAX)
+    if (last_us != INT32_MAX)
         printf(" (+%lu ms)", (now_us - last_us + 500) / 1000);
     printf("\n");
     last_us = now_us;
@@ -236,12 +238,11 @@ static void func_set(int f_num, bool on, bool verbose)
 } // func_set
 
 
-static void toots(uint32_t on1_us,                   //
-                  uint32_t off1_us, uint32_t on2_us, //
-                  uint32_t off2_us, uint32_t on3_us)
+static void toots(int32_t on1_us,                   //
+                  int32_t off1_us, int32_t on2_us, //
+                  int32_t off2_us, int32_t on3_us)
 {
-    // XXX afunc should use signed usec
-    uint32_t now_us = time_us_32();
+    int32_t now_us = time_us_32s();
     if (on1_us > 0) {
         afunc.put(now_us, loco_id, 2, true);
         now_us += on1_us;
@@ -284,7 +285,7 @@ static bool check_setup(int &spur_a, int &spur_b)
             } else {
                 printf(" car detected on spur %d", spur);
             }
-            printf(" (%d mm)\n", dist_mm);
+            printf(" at %d mm\n", dist_mm);
 
             if (spur_a == 0) {
                 spur_a = spur;
@@ -347,7 +348,7 @@ static void init()
         printf("%s ... ", DccApi::status(s));
         loop(1'000'000);
     }
-    printf("%lu\n", sn);
+    printf("0x%08lx\n", sn);
 
     loco = Loco::find_loco(sn);
     assert(loco != nullptr);
