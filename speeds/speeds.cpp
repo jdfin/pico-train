@@ -140,14 +140,14 @@ static void init()
 
     turnout[0].set(true); // straight
 
-    DccApi::init(dcc_sig_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
+    DccApi::init(dcc_bit_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
                  dcc_rcom_uart);
 
     printf("reset loco ... ");
     Status s;
     while ((s = DccApi::cv_val_set(8, 8)) != Status::Ok) {
-        printf("%s.", DccApi::status(s));
-        loop(500'000);
+        printf("%s ... ", DccApi::status(s));
+        loop(1'000'000);
     }
     printf("ok\n");
 
@@ -260,8 +260,8 @@ static void mms_measure(int speed_mms)
     DccApi::loco_speed_set(loco_id, 0);
     loop(2'000'000);
 
-    int speed_dcc = loco->speed_dcc(speed_mms);
-    int actual_mms = loco->speed_mms(speed_dcc);
+    int speed_dcc = loco->mms_to_dcc(speed_mms);
+    int actual_mms = loco->dcc_to_mms(speed_dcc);
 
     DccApi::loco_speed_set(loco_id, speed_dcc);
     while (!sensor[3]) // this might already be false

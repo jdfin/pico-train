@@ -14,6 +14,7 @@ target_link_libraries(circuits PRIVATE
     dcc
     misc
     railroad
+    ws2812
 )
 
 pico_add_extra_outputs(circuits)

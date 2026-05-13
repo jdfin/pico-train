@@ -25,7 +25,7 @@
 //  (2)            D15 | 20           21 | D16           (3)
 //                     +-----------------+
 
-constexpr int dcc_sig_gpio = 19;          // PH
+constexpr int dcc_bit_gpio = 19;          // PH
 constexpr int dcc_pwr_gpio = 18;          // EN
 constexpr int dcc_adc_gpio = 26;          // CS (ADC0)
 constexpr int dcc_rcom_gpio = 17;         // Railcom

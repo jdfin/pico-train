@@ -20,7 +20,7 @@ if (EXISTS ${picoVscode})
 endif()
 # ====================================================================================
 
-set(PICO_BOARD pico2_w CACHE STRING "Board type")
+set(PICO_BOARD pico CACHE STRING "Board type")
 
 include(pico_sdk_import.cmake)
 
@@ -36,6 +36,7 @@ add_compile_options(-Wall -Wextra -Werror -fstack-protector-strong)
 # see include files
 #add_compile_options(-H)
 
+add_subdirectory(blink)
 add_subdirectory(libraries)
 #add_subdirectory(throttle)
 add_subdirectory(circuits)

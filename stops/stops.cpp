@@ -93,14 +93,14 @@ int main()
 
 static void init()
 {
-    DccApi::init(dcc_sig_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
+    DccApi::init(dcc_bit_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
                  dcc_rcom_uart);
 
     printf("reset loco ... ");
     Status s;
     while ((s = DccApi::cv_val_set(8, 8)) != Status::Ok) {
-        printf("%s.", DccApi::status(s));
-        loop(500'000);
+        printf("%s ... ", DccApi::status(s));
+        loop(1'000'000);
     }
     printf("ok\n");
 
@@ -148,7 +148,7 @@ static void loop(int32_t for_us)
 // Don't care about the other sensors.
 static bool check_setup()
 {
-    if (!sensor_unc()) {
+    if (!Desktop::sensor_unc()) {
         printf("ERROR: loco should be in front of the uncoupler sensor\n");
         return false;
     } else {
@@ -171,10 +171,10 @@ static void stop_test(int dec, int speed_mms)
 
     // back up a bit
     ops_cv_val_set(4, 0); // deceleration
-    DccApi::loco_speed_set(loco_id, -loco->speed_dcc(backup_mms));
-    while (!sensor_unc())
+    DccApi::loco_speed_set(loco_id, -loco->mms_to_dcc(backup_mms));
+    while (!Desktop::sensor_unc())
         loop(); // loop here if prev test got us left of uncoupler
-    while (sensor_unc())
+    while (Desktop::sensor_unc())
         loop(); // loop here to get right of uncoupler
     loop(1'000'000);
     DccApi::loco_speed_set(loco_id, 0);
@@ -182,8 +182,8 @@ static void stop_test(int dec, int speed_mms)
 
     // charge!
     ops_cv_val_set(4, dec); // deceleration we're testing
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(speed_mms));
-    while (!sensor_unc())
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(speed_mms));
+    while (!Desktop::sensor_unc())
         loop();
     DccApi::loco_speed_set(loco_id, 0);
 

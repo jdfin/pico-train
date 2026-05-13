@@ -89,8 +89,8 @@ int main()
 
     init(); // track, dcc, loco
 
-    line_turnout_0(spur_num);
-    line_turnout_1(spur_num);
+    Desktop::line_turnout_0(spur_num);
+    Desktop::line_turnout_1(spur_num);
 
     // let the loco charge some before trying to move
     uint32_t track_on_us = time_us_32();
@@ -124,23 +124,17 @@ static void loop(int32_t for_us)
 
 static void init()
 {
-    Status s;
+    Desktop::init();
 
-    for (int i = 0; i < sensor_max; i++)
-        sensor[i].init();
-
-    for (int i = 0; i < sensor2_max; i++)
-        sensor2[i].init();
-
-    Turnout::init(tp_gpio);
-
-    DccApi::init(dcc_sig_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
+    DccApi::init(dcc_bit_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
                  dcc_rcom_uart);
+
+    Status s;
 
     printf("Reset loco ... ");
     while ((s = DccApi::cv_val_set(8, 8)) != Status::Ok) {
         printf("%s ... ", DccApi::status(s));
-        loop(500'000);
+        loop(1'000'000);
     }
     printf("ok\n");
 
@@ -188,19 +182,19 @@ static void mode_poll()
     printf("T MM\n");
 
     while (true) {
-        DccApi::loco_speed_set(loco_id, loco->speed_dcc(speed_mms));
+        DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(speed_mms));
         uint32_t now_us;
         do {
             now_us = time_us_32();
         } while (int32_t(now_us - poll_us) < 0);
-        int d_mm = sensor_spur(spur_num).dist_mm();
+        int d_mm = Desktop::sensor_spur(spur_num).dist_mm();
         if (d_mm != INT_MAX) {
             static uint32_t zero_us = now_us;
             printf("%0.1f %d\n", (now_us - zero_us) / 1'000'000.0, d_mm);
         }
         if (d_mm <= 50)                  // end of spur1
             speed_mms = +abs(speed_mms); // go forward
-        if (sensor_unc())                // uncoupler
+        if (Desktop::sensor_unc())       // uncoupler
             speed_mms = -abs(speed_mms); // go backward
         poll_us += poll_interval_us;
     }
@@ -246,21 +240,21 @@ static void callback(uint16_t count, intptr_t)
 static void mode_raw()
 {
     // log every count update
-    sensor_spur(spur_num).set_callback(callback, 0);
+    Desktop::sensor_spur(spur_num).set_callback(callback, 0);
 
     // drive to the end of spur1
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-speed_mms));
-    while (sensor_spur(spur_num).dist_mm() > 50)
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(-speed_mms));
+    while (Desktop::sensor_spur(spur_num).dist_mm() > 50)
         loop();
 
     // drive about fwd_mm forward
     constexpr int fwd_mm = 500;
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(speed_mms));
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(speed_mms));
     loop(fwd_mm * 1'000'000 / speed_mms);
     DccApi::loco_speed_set(loco_id, 0);
     loop(1'000'000);
 
-    sensor_spur(spur_num).set_callback(nullptr, 0);
+    Desktop::sensor_spur(spur_num).set_callback(nullptr, 0);
 
     // print log
     printf("T Count Dist_mm\n");
@@ -291,12 +285,12 @@ static void mode_spot()
 {
     // push back and leave car
 
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-fast_mms));
-    while (sensor_spur(spur_num).dist_mm() > slow_mm)
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(-fast_mms));
+    while (Desktop::sensor_spur(spur_num).dist_mm() > slow_mm)
         loop();
 
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-slow_mms));
-    while (sensor_spur(spur_num).dist_mm() > stop_mm)
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(-slow_mms));
+    while (Desktop::sensor_spur(spur_num).dist_mm() > stop_mm)
         loop();
 
     DccApi::loco_speed_set(loco_id, 0);
@@ -304,9 +298,9 @@ static void mode_spot()
 
     // drive about fwd_mm forward
     constexpr int fwd_mm = 500;
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(slow_mms));
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(slow_mms));
     loop(slow_mm * 1'000'000 / slow_mms);
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(fast_mms));
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(fast_mms));
     loop((fwd_mm - slow_mm) * 1'000'000 / fast_mms);
     DccApi::loco_speed_set(loco_id, 0);
     loop(1'000'000);
@@ -327,10 +321,10 @@ static constexpr int fast_mms = 50;
 static void mode_fetch()
 {
     // get initial reading on the car
-    int dist_mm = sensor_spur(spur_num).dist_mm();
+    int dist_mm = Desktop::sensor_spur(spur_num).dist_mm();
 
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(-slow_mms));
-    while (sensor_spur(spur_num).dist_mm() > (dist_mm - move_mm))
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(-slow_mms));
+    while (Desktop::sensor_spur(spur_num).dist_mm() > (dist_mm - move_mm))
         loop();
 
     DccApi::loco_speed_set(loco_id, 0);
@@ -339,9 +333,9 @@ static void mode_fetch()
     // drive about fwd_mm forward
     constexpr int slow_mm = 100;
     constexpr int fast_mm = 400;
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(slow_mms));
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(slow_mms));
     loop(slow_mm * 1'000'000 / slow_mms);
-    DccApi::loco_speed_set(loco_id, loco->speed_dcc(fast_mms));
+    DccApi::loco_speed_set(loco_id, loco->mms_to_dcc(fast_mms));
     loop(fast_mm * 1'000'000 / fast_mms);
     DccApi::loco_speed_set(loco_id, 0);
     loop(1'000'000);

@@ -19,3 +19,6 @@
 [submodule "libraries/railroad"]
 	path = libraries/railroad
 	url = git@github.com:jdfin/pico-libraries-railroad.git
+[submodule "libraries/ws2812"]
+	path = libraries/ws2812
+	url = https://github.com/jdfin/pico-libraries-ws2812
