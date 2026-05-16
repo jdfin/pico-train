@@ -39,8 +39,8 @@ static const Loco *loco = nullptr;
 
 // lights in house is a strip of ws2812; use four of them
 static Ws2812 ws2812(ws2812_gpio, 4);
-static constexpr int house_pct = 50;
-static Lights lights(ws2812, house_pct);
+static constexpr int house_brt = 255;
+static Lights lights(ws2812, house_brt);
 
 // value >= 0 means set the cv to that value; negative values are special
 static constexpr int cv_none = -1; // don't change, don't read
@@ -132,6 +132,11 @@ int main()
 {
     stdio_init_all();
     SysLed::init();
+    ws2812.init();
+    lights.off();
+
+    const int32_t change_ms = 500;
+    lights.set_change_us((change_ms * 1'000 + house_brt / 2) / house_brt);
 
     wait_run(false);
 
@@ -317,9 +322,6 @@ static void init()
 
     DccApi::init(dcc_bit_gpio, dcc_pwr_gpio, dcc_adc_gpio, dcc_rcom_gpio,
                  dcc_rcom_uart);
-
-    ws2812.init();
-    lights.off();
 
     Status s;
 
