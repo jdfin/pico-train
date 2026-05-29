@@ -20,6 +20,7 @@ using Status = DccApi::Status;
 #include "afunc.h"
 #include "desktop_layout.h"
 #include "desktop_ops.h"
+#include "display.h"
 #include "lights.h"
 #include "locos.h"
 #include "sensor.h"
@@ -42,6 +43,9 @@ static Ws2812 ws2812(ws2812_gpio, 4);
 static constexpr int house_brt = 255;
 static Lights lights(ws2812, house_brt);
 
+// OLED display in window
+static Display display;
+
 // value >= 0 means set the cv to that value; negative values are special
 static constexpr int cv_none = -1; // don't change, don't read
 static constexpr int cv_show = -2; // don't change, but read and show
@@ -54,7 +58,7 @@ static void init();
 static void loop(int32_t for_us = 0);
 static void func_set(int f_num, bool on, bool verbose = false);
 
-static void toots(int32_t on1_us, //
+static void toots(int32_t on1_us,                          //
                   int32_t off1_us = 0, int32_t on2_us = 0, //
                   int32_t off2_us = 0, int32_t on3_us = 0);
 
@@ -111,6 +115,7 @@ static void wait_run(bool set_sound = true)
 
     lights.red();
     SysLed::pattern(50, 950);
+    display.show("Paused");
 
     while (!Desktop::sw[0]) {
         loop();
@@ -134,9 +139,13 @@ int main()
     SysLed::init();
     ws2812.init();
     lights.off();
+    display.init();
 
     const int32_t change_ms = 500;
     lights.set_change_us((change_ms * 1'000 + house_brt / 2) / house_brt);
+
+    display.clear();
+    display.wait();
 
     wait_run(false);
 
@@ -156,16 +165,13 @@ int main()
 
     // spurs a and b initially have the cars on them
     int spur_a, spur_b;
-    while (!check_setup(spur_a, spur_b)) {
-        // flash led
-        SysLed::on();
-        loop(500'000);
-        SysLed::off();
-        loop(500'000);
-    }
+    SysLed::pattern(500, 500);
+    while (!check_setup(spur_a, spur_b))
+        loop(1'000'000);
+    SysLed::off();
 
-    // spur_e is initially empty
-    int spur_e = 6 - spur_a - spur_b; // 1+2+3=6
+    // spur_empty is initially empty
+    int spur_empty = 6 - spur_a - spur_b; // 1+2+3=6
 
     // Let the loco's supercap charge some before trying to move.
     // (I don't know if this really matters or helps.)
@@ -173,33 +179,44 @@ int main()
     const int32_t delay_us = charge_us - (time_us_32s() - track_on_us);
     loop(delay_us);
 
+    char msg[20];
+
     while (true) {
 
         wait_run();
 
+        sprintf(msg, "Fetch %d", spur_a);
+        display.show(msg);
+
         func_set(loco->f_cab_light, false);
         loop(1'000'000);
 
-        lights.off(8'000); // turn house lights off in 8 seconds (when out of house)
+        // turn house lights off in 8 seconds (when out of house)
+        lights.off(8'000);
+
         toots_backing_up();
         DesktopOps::fetch(loco_id, loco, spur_a);
         // XXX check that the fetch resulted in coupling
 
         do {
+            display.show("Uncouple");
             loop(2'000'000);
             toots_proceeding();
             DesktopOps::uncouple(loco_id, loco);
             loop(2'000'000);
+            sprintf(msg, "Spot %d", spur_empty);
+            display.show(msg);
             // if spot() returns false, the car recoupled, so try again
-        } while (!DesktopOps::spot(loco_id, loco, spur_e));
+        } while (!DesktopOps::spot(loco_id, loco, spur_empty));
 
         toots_proceeding();
-
+        display.show("Home");
         loop(2'000'000);
         spur_a = spur_b;
-        spur_b = spur_e;
-        spur_e = 6 - spur_a - spur_b; // 1+2+3=6
-        lights.white(5'000); // turn house lights on in 5 seconds (when approaching house)
+        spur_b = spur_empty;
+        spur_empty = 6 - spur_a - spur_b; // 1+2+3=6
+        // turn house lights on in 5 seconds (when approaching house)
+        lights.white(5'000);
         DesktopOps::home(loco_id, loco);
         loop(1'000'000);
         func_set(loco->f_cab_light, true);
@@ -243,7 +260,7 @@ static void func_set(int f_num, bool on, bool verbose)
 } // func_set
 
 
-static void toots(int32_t on1_us,                   //
+static void toots(int32_t on1_us,                  //
                   int32_t off1_us, int32_t on2_us, //
                   int32_t off2_us, int32_t on3_us)
 {
@@ -269,28 +286,73 @@ static void toots(int32_t on1_us,                   //
 
 
 // There should be cars on two and only two spurs
+//
+// Display:
+// +----------------------+
+// |  Spur 1:   2.5"   v  |
+// |  Spur 2:             |
+// |  Spur 3:   0.9"      |
+// |          OK          |
+// +----------------------+
 static bool check_setup(int &spur_a, int &spur_b)
 {
     bool ok = true;
     spur_a = 0;
     spur_b = 0;
 
+    const char check = 0x12; // checkmark in chicago-12
+    const char nope = 0x15;  // X-mark in customized chicago-12
+
     // If there is a car on spur1, it must be in detection range, but not too close.
     constexpr int in_range_mm = 100; // 4"
     constexpr int too_close_mm = 25; // 1"
 
-    for (int spur = 1; spur <= 3; spur++) {
-        int dist_mm = Desktop::sensor2[spur].dist_mm();
-        if (dist_mm < in_range_mm) {
+    int dist_mm[3];
+
+    display.clear();
+    constexpr int line_cnt = 4;
+    constexpr int line_hgt = display.height() / line_cnt;
+    int line_ctr[line_cnt] = {
+        1 * line_hgt / 2,
+        3 * line_hgt / 2,
+        5 * line_hgt / 2,
+        7 * line_hgt / 2,
+    };
+
+    for (int i = 0; i < 3; i++) {
+        int spur = i + 1;
+        dist_mm[i] = Desktop::sensor2[spur].dist_mm();
+
+        display.clear(0, i * display.height() / line_cnt, display.width(),
+                      line_hgt);
+        char str_work[16];
+        sprintf(str_work, "Spur %d", spur);
+        constexpr int spur_name_col = 10; // left aligned
+        constexpr int spur_dist_col =
+            (display.width() * 5) / 8;                    // center aligned
+        constexpr int spur_ok_col = display.width() - 10; // right aligned
+        display.set_align(Display::HAlign::Left, Display::VAlign::Center);
+        display.puts(spur_name_col, line_ctr[i], str_work);
+        // testing against 250 instead of infinity makes sure inches fits in 3.1f
+        if (dist_mm[i] < 250) {
+            sprintf(str_work, "%3.1f\"", dist_mm[i] / 25.4); // sprintf rounds
+            display.set_align(Display::HAlign::Center, Display::VAlign::Center);
+            display.puts(spur_dist_col, line_ctr[i], str_work);
+        }
+
+        if (dist_mm[i] < in_range_mm) {
 
             printf("check_setup:");
-            if (dist_mm < too_close_mm) {
+            display.set_align(Display::HAlign::Right, Display::VAlign::Center);
+            if (dist_mm[i] < too_close_mm) {
                 printf(" ERROR: car on spur %d is too close to end", spur);
+                display.putc(spur_ok_col, line_ctr[i], nope);
                 ok = false;
             } else {
                 printf(" car detected on spur %d", spur);
+                display.putc(spur_ok_col, line_ctr[i], check);
             }
-            printf(" at %d mm\n", dist_mm);
+            printf(" at %d mm\n", dist_mm[i]);
 
             if (spur_a == 0) {
                 spur_a = spur;
@@ -311,6 +373,13 @@ static bool check_setup(int &spur_a, int &spur_b)
         printf("check_setup: ERROR: only one car detected (spur %d)\n", spur_a);
         ok = false;
     }
+
+    if (ok) {
+        display.set_align(Display::HAlign::Center, Display::VAlign::Center);
+        display.puts(display.width() / 2, line_ctr[3], "OK");
+    }
+
+    display.flush();
 
     return ok;
 }
