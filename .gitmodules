@@ -22,3 +22,6 @@
 [submodule "libraries/ws2812"]
 	path = libraries/ws2812
 	url = https://github.com/jdfin/pico-libraries-ws2812
+[submodule "libraries/oled"]
+	path = libraries/oled
+	url = https://github.com/jdfin/pico-libraries-oled.git
