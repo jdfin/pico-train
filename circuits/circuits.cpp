@@ -442,6 +442,9 @@ static void init()
         ops_cv_val_set(259, loco->v_engine);
     }
 
+    if (loco->setup != nullptr)
+        loco->setup(loco_id);
+
     func_set(loco->f_headlight, true);
     func_set(loco->f_engine, snd_engine);
 
