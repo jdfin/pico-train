@@ -7,25 +7,25 @@
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 // railroad
-#include "config.h"
+#include "railroad/config.h"
 // misc
-#include "buf_log.h"
-#include "sys_led.h"
+#include "misc/buf_log.h"
+#include "misc/sys_led.h"
 // ws2812
-#include "ws2812.h"
+#include "ws2812/ws2812.h"
 // dcc
-#include "dcc_api.h"
+#include "dcc/dcc_api.h"
 using Status = DccApi::Status;
 // railroad
-#include "afunc.h"
-#include "desktop_layout.h"
-#include "desktop_ops.h"
-#include "display.h"
-#include "lights.h"
-#include "locos.h"
-#include "sensor.h"
-#include "sensor2.h"
-#include "turnout.h"
+#include "railroad/afunc.h"
+#include "railroad/desktop_layout.h"
+#include "railroad/desktop_ops.h"
+#include "railroad/display.h"
+#include "railroad/lights.h"
+#include "railroad/locos.h"
+#include "railroad/sensor.h"
+#include "railroad/sensor2.h"
+#include "railroad/turnout.h"
 
 static constexpr bool snd_any = true;
 static constexpr bool snd_engine = snd_any && true;

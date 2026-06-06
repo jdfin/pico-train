@@ -7,17 +7,17 @@
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 // misc
-#include "sys_led.h"
+#include "misc/sys_led.h"
 // dcc
-#include "dcc_api.h"
+#include "dcc/dcc_api.h"
 using Status = DccApi::Status;
 // railroad
-#include "config.h"
-#include "desktop_layout.h"
-#include "desktop_ops.h"
-#include "locos.h"
-#include "sensor.h"
-#include "turnout.h"
+#include "railroad/config.h"
+#include "railroad/desktop_layout.h"
+#include "railroad/desktop_ops.h"
+#include "railroad/locos.h"
+#include "railroad/sensor.h"
+#include "railroad/turnout.h"
 
 static constexpr int loco_id = 3;
 

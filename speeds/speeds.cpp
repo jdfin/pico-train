@@ -6,17 +6,17 @@
 #include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 // misc
-#include "buf_log.h"
-#include "sys_led.h"
+#include "misc/buf_log.h"
+#include "misc/sys_led.h"
 // dcc
-#include "dcc_api.h"
+#include "dcc/dcc_api.h"
 using Status = DccApi::Status;
 // railroad
-#include "sensor.h"
-#include "turnout.h"
+#include "railroad/sensor.h"
+#include "railroad/turnout.h"
 //
-#include "config.h"
-#include "locos.h"
+#include "railroad/config.h"
+#include "railroad/locos.h"
 
 ///// Turnouts ///////////////////////////////////////////////////////////////
 
